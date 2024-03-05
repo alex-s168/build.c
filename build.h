@@ -79,9 +79,9 @@ bool exists(char *file) {
 }
 
 #define SP(typeIn, file) { .type = typeIn, .srcFile = file, .outFile = "build/" file ".o" }
-#define DEP(file) { .type = CT_DEP, .srcFile = NULL, .outFile = file }
-#define DIR(dir)  { .type = CT_DIR, .srcFile = NULL, .outFile = dir }
-#define RUN(exe)  { .type = CT_RUN, .srcFile = exe,  .outFile = NULL }
+#define DEP(file) { .type = CT_DEP, .srcFile = "", .outFile = file }
+#define DIR(dir)  { .type = CT_DIR, .srcFile = "", .outFile = dir }
+#define RUN(exe)  { .type = CT_RUN, .srcFile = exe,  .outFile = "" }
 
 #define START   enum CompileResult res
 #define DO(cmd) res = cmd; if (res != CR_OK) return res;
