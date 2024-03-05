@@ -34,15 +34,25 @@
 # define VERBOSE   0
 #endif 
 
+#if defined(_WIN32) && !defined(SERIAL_COMP)
+# define SERIAL_COMP
+#endif 
+
 /* ========================================================================= */
 
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <pthread.h>
-#include <signal.h>
 #include <stdbool.h>
-#include <unistd.h>
+
+#ifdef _WIN32 
+# define WIN32_LEAN_AND_MEAN
+# include <windows.h>
+#else 
+# include <pthread.h>
+# include <signal.h>
+# include <unistd.h>
+#endif 
 
 #define error(msg) fprintf(stderr, "%s", msg)
 
@@ -75,7 +85,11 @@ enum CompileResult verifyDependencies(struct CompileData *objs, size_t len);
 enum CompileResult allRun(struct CompileData *objs, size_t len);
 
 bool exists(char *file) {
+#ifdef _WIN32 
+    return _access(file, 0) == 0;
+#else 
     return access(file, F_OK) == 0;
+#endif 
 }
 
 #define SP(typeIn, file) { .type = typeIn, .srcFile = file, .outFile = "build/" file ".o" }
@@ -233,7 +247,29 @@ enum CompileResult link_exe(struct CompileData *objs, size_t len, char *out) {
     return CR_FAIL;
 }
 
+int mkdir(const char *path) {
+    char *args = malloc(strlen(path) + sizeof(MKDIR) + 1);
+    sprintf(args, "%s %s", MKDIR, path);
+    int res = system(args);
+    free(args);
+    return res;
+}
+
 enum CompileResult compile(struct CompileData *objs, size_t len) {
+#ifdef SERIAL_COMP 
+    for (size_t i = 0; i < len; i ++) {
+        struct CompileData *data = &objs[i];
+
+        if (data->type == CT_DIR) {
+            (void) mkdir(data->outFile);
+        } else {
+            enum CompileResult res = (enum CompileResult) (intptr_t) compileThread(data);
+            if (res != CR_OK)
+                return res;
+        }
+    }
+    return CR_OK;
+#else 
     pthread_t *threads = malloc(sizeof(pthread_t) * len);
 
     for (size_t i = 0; i < len; i ++) {
@@ -268,6 +304,7 @@ enum CompileResult compile(struct CompileData *objs, size_t len) {
 
     free(threads);
     return CR_OK;
+#endif 
 }
 
 enum CompileResult verifyDependencies(struct CompileData *objs, size_t len) {
