@@ -26,6 +26,22 @@
 # endif 
 #endif
 
+#ifndef RMDIR
+# ifdef _WIN32
+#  define RMDIR    "rmdir /s /q"
+# else 
+#  define RMDIR    "rm -rf"
+# endif 
+#endif
+
+#ifndef RMFILE
+# ifdef _WIN32
+#  define RMFILE   "del"
+# else 
+#  define RMFILE   "rm -f"
+# endif 
+#endif 
+
 #ifndef LD_ARGS
 # define LD_ARGS   ""
 #endif
@@ -149,6 +165,22 @@ int system_impl(const char *command) {
 }
 
 #define system system_impl
+
+int rmdir(const char *path) {
+    char *cmd = malloc(strlen(path) + 2 + sizeof(RMDIR));
+    sprintf(cmd, "%s %s", RMDIR, path);
+    int res = system(cmd);
+    free(cmd);
+    return res;
+}
+
+int rmfile(const char *path) {
+    char *cmd = malloc(strlen(path) + 2 + sizeof(RMFILE));
+    sprintf(cmd, "%s %s", RMFILE, path);
+    int res = system(cmd);
+    free(cmd);
+    return res;
+}
 
 struct Target {
     char *name;
