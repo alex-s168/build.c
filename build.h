@@ -45,9 +45,8 @@
 #include <string.h>
 #include <stdbool.h>
 
-#ifdef _WIN32 
-# define WIN32_LEAN_AND_MEAN
-# include <windows.h>
+#ifdef _WIN32
+# include <io.h>
 #else 
 # include <pthread.h>
 # include <signal.h>
@@ -86,7 +85,7 @@ enum CompileResult allRun(struct CompileData *objs, size_t len);
 
 bool exists(char *file) {
 #ifdef _WIN32 
-    return _access(file, 0) == 0;
+    return access(file, 0) == 0;
 #else 
     return access(file, F_OK) == 0;
 #endif 
@@ -250,6 +249,15 @@ enum CompileResult link_exe(struct CompileData *objs, size_t len, char *out) {
 int mkdir(const char *path) {
     char *args = malloc(strlen(path) + sizeof(MKDIR) + 1);
     sprintf(args, "%s %s", MKDIR, path);
+#ifdef _WIN32
+    char *ap = args;
+    char c;
+    while ((c = *ap) != '\0') {
+        if (c == '/')
+            *ap = '\\';
+        ap ++;
+    }
+#endif
     int res = system(args);
     free(args);
     return res;
