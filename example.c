@@ -19,10 +19,10 @@ enum CompileResult target_lib() {
 /* ========================================================================= */
 
 enum CompileResult target_tests() {
-    START;
+    START_TESTING;
     test("", "test.c", 0, CT_C,
             DEP("build/lib.a"));
-    END;
+    END_TESTING;
 }
 
 /* ========================================================================= */

@@ -83,11 +83,11 @@ enum CompileResult compile(struct CompileData *objs, size_t len);
 enum CompileResult verifyDependencies(struct CompileData *objs, size_t len);
 enum CompileResult allRun(struct CompileData *objs, size_t len);
 
-bool exists(char *file) {
+bool exists(const char *file) {
 #ifdef _WIN32 
-    return access(file, 0) == 0;
+    return _access(file, 0) == 0;
 #else 
-    return access(file, F_OK) == 0;
+    return access((char *)file, F_OK) == 0;
 #endif 
 }
 
@@ -104,6 +104,9 @@ bool exists(char *file) {
 
 enum CompileResult test_impl(char *outFile, size_t id, struct CompileData *data, size_t dataLen);
 
+#define START_TESTING enum CompileResult res; enum CompileResult resTemp;
+#define END_TESTING   return res;
+
 #define test(indir, infile, id, type, ...) \
     static struct CompileData d_##id[] = { \
         DIR("build/"), \
@@ -112,17 +115,40 @@ enum CompileResult test_impl(char *outFile, size_t id, struct CompileData *data,
         RUN("build/" infile ".exe"), \
         __VA_ARGS__, \
     }; \
-    res = test_impl("build/" infile ".exe", id, LI(d_##id)); \
-    if (res != CR_OK) return res;
+    resTemp = test_impl("build/" infile ".exe", id, LI(d_##id)); \
+    if (resTemp != CR_OK) res = resTemp;
+
+int system_impl(const char *command) {
+#ifdef _WIN32
+    {
+        size_t len = strlen(command) + 1;
+        char *cmdNew = malloc(len);
+
+        for (size_t i = 0; i < len; i ++) {
+            char c = command[i];
+            if (c == '/')
+                c = '\\';
+            cmdNew[i] = c;
+        }
+
+        command = cmdNew;
+    }
+#endif
 
 #if VERBOSE
-int system_impl(const char *command) {
     printf("$ %s\n", command);
-    return system(command);
+#endif
+
+    int res = system(command);
+
+#ifdef _WIN32
+    free((void *)command);
+#endif
+
+    return res;
 }
 
 #define system system_impl
-#endif
 
 struct Target {
     char *name;
@@ -132,38 +158,30 @@ struct Target {
 int build_main(int argc, char **argv,
                struct Target *targets, size_t targets_len) {
 
-    if (argc != 2)
-	    goto invalid_target;
+    if (argc == 2) {
+        char *target = argv[1];
 
-    char *target = argv[1];
+        for (size_t i = 0; i < targets_len; i++) {
+            struct Target tg = targets[i];
+            if (strcmp(target, tg.name) != 0)
+                continue;
 
-    bool found = false;
-    for (size_t i = 0; i < targets_len; i ++) {
-    	struct Target tg = targets[i];
-	    if (strcmp(target, tg.name) == 0) {
-            found = true;
-	        enum CompileResult r = tg.run();
-	        if (r == CR_FAIL) {
-		        error("FAIL\n");
-		        return 1;
-	        } else if (r == CR_FAIL_2) {
-		        error("FAIL_2\n");
-	    	    return 1;
-	        }
-	        break;
-	    }
+            enum CompileResult r = tg.run();
+            if (r == CR_FAIL) {
+                error("FAIL\n");
+                return 1;
+            } else if (r == CR_FAIL_2) {
+                error("FAIL_2\n");
+                return 1;
+            }
+            return 0;
+        }
     }
 
-    if (!found)
-	    goto invalid_target;
-
-    return 0;
-
-    invalid_target:
-        error("Invalid target! Targets:\n");
-	    for (size_t i = 0; i < targets_len; i ++)
-	        fprintf(stderr, "- %s\n", targets[i].name);
-        return 2;
+    error("Invalid target! Targets:\n");
+    for (size_t i = 0; i < targets_len; i ++)
+        fprintf(stderr, "- %s\n", targets[i].name);
+    return 2;
 }
 
 void *compileThread(void *arg) {
@@ -247,17 +265,12 @@ enum CompileResult link_exe(struct CompileData *objs, size_t len, char *out) {
 }
 
 int mkdir(const char *path) {
+#ifdef _WIN32
+    if (exists(path))
+        return 0;
+#endif
     char *args = malloc(strlen(path) + sizeof(MKDIR) + 1);
     sprintf(args, "%s %s", MKDIR, path);
-#ifdef _WIN32
-    char *ap = args;
-    char c;
-    while ((c = *ap) != '\0') {
-        if (c == '/')
-            *ap = '\\';
-        ap ++;
-    }
-#endif
     int res = system(args);
     free(args);
     return res;
@@ -342,7 +355,7 @@ enum CompileResult allRun(struct CompileData *objs, size_t len) {
 
         char *f = data->srcFile;
         if (!exists(f)) {
-            error("Missing executeable:\n");
+            error("Missing executable:\n");
             error(f);
             error("\n");
             return CR_FAIL_2;
