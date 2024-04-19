@@ -4,6 +4,7 @@ Simple build "system".
 Example build scripts using this system:
 - [example 1](example.c)
 - [project: Kollektions](https://github.com/alex-s168/kollektions/blob/master/build.c)
+- [project: Sequencia](https://github.com/alex-s168/sequencia/blob/main/build.c)
 
 ## Getting started
 ```bash
