@@ -117,6 +117,7 @@ bool exists(const char *file) {
 #define END     return CR_OK;
 #define LEN(li) (sizeof(li) / sizeof(li[0]))
 #define LI(li)  li, LEN(li)
+#define DO_IGNORE(cmd)  (void) cmd;
 
 enum CompileResult test_impl(char *outFile, size_t id, struct CompileData *data, size_t dataLen);
 
@@ -165,6 +166,31 @@ int system_impl(const char *command) {
 }
 
 #define system system_impl
+
+#define shell(cmd) (system(cmd) == 0 ? CR_OK : CR_FAIL)
+
+#define subproject(path, outpath) \
+    shell(CC" -DCC=\"\\\"" CC "\\\"\" -DCXX=\"\\\"" CXX "\\\"\" -DCC_ARGS=\"\\\"" CC_ARGS "\\\"\" -DCXX_ARGS=\"\\\"" CXX_ARGS "\\\"\" -DAR=\"\\\"" AR "\\\"\" -DLD_ARGS=\"\\\"" LD_ARGS "\\\"\" " CC_ARGS " " path " -o " outpath)
+
+#define ss(dir, block) { DO(subproject(dir "build.c", dir "build.exe")); const char *subproject = dir; block; }
+
+enum CompileResult ss_task_impl(const char *subproj, const char *task) {
+    static char mid[] = "build.exe ";
+    size_t len = strlen(subproj) + sizeof(mid) + strlen(task) + 3 + 20;
+    char *cmd = malloc(len);
+
+#ifdef _WIN32
+    sprintf(cmd, "cd %s && .\%s%s && cd ..", subproj, mid, task);
+#else
+    sprintf(cmd, "cd %s && ./%s%s && cd ..", subproj, mid, task);
+#endif 
+
+    enum CompileResult res = shell(cmd);
+    free(cmd);
+    return res;
+}
+
+#define ss_task(task) ss_task_impl(subproject, task)
 
 int rmdir(const char *path) {
     char *cmd = malloc(strlen(path) + 2 + sizeof(RMDIR));
@@ -432,5 +458,4 @@ fail:
     printf("Test %zu: FAIL\n", id);
     return CR_FAIL;
 }
-
 
