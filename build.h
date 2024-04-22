@@ -126,6 +126,7 @@ enum CompileResult test_impl(char *outFile, size_t id, struct CompileData *data,
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 
 // borrowed from https://stackoverflow.com/a/2741071
 size_t str_escape(char *dst, const char *src, size_t dstLen)
