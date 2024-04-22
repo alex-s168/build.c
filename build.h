@@ -123,12 +123,111 @@ enum CompileResult test_impl(char *outFile, size_t id, struct CompileData *data,
     resTemp = test_impl("build/" infile ".exe", id, LI(d_##id)); \
     if (resTemp != CR_OK) res = resTemp;
 
-int system_impl(const char *command) {
-#if VERBOSE
-    printf("$ %s\n", command);
-#endif
+#include <stdint.h>
+#include <stdlib.h>
+#include <string.h>
 
+// borrowed from https://stackoverflow.com/a/2741071
+size_t str_escape(char *dst, const char *src, size_t dstLen)
+{
+    const char complexCharMap[] = "abtnvfr";
+
+    size_t i;
+    size_t srcLen = strlen(src);    
+    size_t dstIdx = 0;
+
+    // If caller wants to determine required length (supplying NULL for dst)
+    // then we set dstLen to SIZE_MAX and pretend the buffer is the largest
+    // possible, but we never write to it. Caller can also provide dstLen
+    // as 0 if no limit is wanted.
+    if (dst == NULL || dstLen == 0) dstLen = SIZE_MAX;
+
+    for (i = 0; i < srcLen && dstIdx < dstLen; i++)
+    {
+        size_t complexIdx = 0;
+
+        switch (src[i])
+        {
+            case '\'':
+            case '\"':
+            case '\\':
+                if (dst && dstIdx <= dstLen - 2)
+                {
+                    dst[dstIdx++] = '\\';
+                    dst[dstIdx++] = src[i];
+                }
+                else dstIdx += 2;
+                break;
+
+            case '\r': complexIdx++;
+            case '\f': complexIdx++;
+            case '\v': complexIdx++;
+            case '\n': complexIdx++;
+            case '\t': complexIdx++;
+            case '\b': complexIdx++;
+            case '\a':
+                if (dst && dstIdx <= dstLen - 2)
+                {
+                    dst[dstIdx++] = '\\';
+                    dst[dstIdx++] = complexCharMap[complexIdx];
+                }
+                else dstIdx += 2;
+                break;
+
+            default:
+                if (isprint(src[i]))
+                {
+                    // simply copy the character
+                    if (dst)
+                        dst[dstIdx++] = src[i];
+                    else
+                        dstIdx++;
+                }
+                else
+                {
+                    // produce octal escape sequence
+                    if (dst && dstIdx <= dstLen - 4)
+                    {
+                        dst[dstIdx++] = '\\';
+                        dst[dstIdx++] = ((src[i] & 0300) >> 6) + '0';
+                        dst[dstIdx++] = ((src[i] & 0070) >> 3) + '0';
+                        dst[dstIdx++] = ((src[i] & 0007) >> 0) + '0';
+                    }
+                    else
+                    {
+                        dstIdx += 4;
+                    }
+                }
+        }
+    }
+
+    if (dst && dstIdx <= dstLen)
+        dst[dstIdx] = '\0';
+
+    return dstIdx;
+}
+
+int system_impl(const char *command) {
+#ifdef _WIN32
+    // inefficient af but too lazy
+    size_t escaped_max_len = strlen(command) * 2 + 1;
+    char *escaped = malloc(escaped_max_len);
+    str_escape(escaped, command, escaped_max_len);
+
+    char *newcmd = malloc(strlen(escaped) + 1 + 10);
+    sprintf(newcmd, "bash -c \"%s\"", escaped);
+    free(escaped);
+# if VERBOSE
+    printf("$ %s\n", newcmd);
+# endif
+    int res = system(newcmd);
+    free(newcmd);
+#else
+# if VERBOSE
+    printf("$ %s\n", command);
+# endif
     int res = system(command);
+#endif
 
     return res;
 }
@@ -137,8 +236,11 @@ int system_impl(const char *command) {
 
 #define shell(cmd) (system(cmd) == 0 ? CR_OK : CR_FAIL)
 
+#define STR2(v) #v
+#define STR(v) STR2(v)
+
 #define subproject(path, outpath) \
-    shell(CC" -DCC=\"\\\"" CC "\\\"\" -DCXX=\"\\\"" CXX "\\\"\" -DCC_ARGS=\"\\\"" CC_ARGS "\\\"\" -DCXX_ARGS=\"\\\"" CXX_ARGS "\\\"\" -DAR=\"\\\"" AR "\\\"\" -DLD_ARGS=\"\\\"" LD_ARGS "\\\"\" " CC_ARGS " " path " -o " outpath)
+    shell(CC" -DCC=\"\\\"" CC "\\\"\" -DCXX=\"\\\"" CXX "\\\"\" -DCC_ARGS=\"\\\"" CC_ARGS "\\\"\" -DCXX_ARGS=\"\\\"" CXX_ARGS "\\\"\" -DAR=\"\\\"" AR "\\\"\" -DLD_ARGS=\"\\\"" LD_ARGS "\\\"\" -DVERBOSE=" STR(VERBOSE) " " CC_ARGS " " path " -o " outpath)
 
 #define ss(dir, block) { DO(subproject(dir "build.c", dir "build.exe")); const char *subproject = dir; block; }
 
@@ -147,7 +249,7 @@ enum CompileResult ss_task_impl(const char *subproj, const char *task) {
     size_t len = strlen(subproj) + sizeof(mid) + strlen(task) + 3 + 20;
     char *cmd = malloc(len);
 
-    sprintf(cmd, "cd %s && ./%s%s && cd ..", subproj, mid, task);
+    sprintf(cmd, "cd %s && ./%s%s", subproj, mid, task);
 
     enum CompileResult res = shell(cmd);
     free(cmd);
