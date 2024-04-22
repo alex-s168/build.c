@@ -25,3 +25,6 @@ $ ./build.exe
 # Build specific target
 $ ./build.exe [target]
 ```
+
+### Windows
+Build.C requires git bash or similar to run

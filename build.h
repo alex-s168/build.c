@@ -19,27 +19,15 @@
 #endif 
 
 #ifndef MKDIR
-# ifdef _WIN32
-#  define MKDIR    "mkdir"
-# else 
-#  define MKDIR    "mkdir -p"
-# endif 
+# define MKDIR    "mkdir -p"
 #endif
 
 #ifndef RMDIR
-# ifdef _WIN32
-#  define RMDIR    "rmdir /s /q"
-# else 
-#  define RMDIR    "rm -rf"
-# endif 
+# define RMDIR    "rm -rf"
 #endif
 
 #ifndef RMFILE
-# ifdef _WIN32
-#  define RMFILE   "del"
-# else 
-#  define RMFILE   "rm -f"
-# endif 
+# define RMFILE   "rm -f" 
 #endif 
 
 #ifndef LD_ARGS
@@ -136,31 +124,11 @@ enum CompileResult test_impl(char *outFile, size_t id, struct CompileData *data,
     if (resTemp != CR_OK) res = resTemp;
 
 int system_impl(const char *command) {
-#ifdef _WIN32
-    {
-        size_t len = strlen(command) + 1;
-        char *cmdNew = malloc(len);
-
-        for (size_t i = 0; i < len; i ++) {
-            char c = command[i];
-            if (c == '/')
-                c = '\\';
-            cmdNew[i] = c;
-        }
-
-        command = cmdNew;
-    }
-#endif
-
 #if VERBOSE
     printf("$ %s\n", command);
 #endif
 
     int res = system(command);
-
-#ifdef _WIN32
-    free((void *)command);
-#endif
 
     return res;
 }
@@ -179,11 +147,7 @@ enum CompileResult ss_task_impl(const char *subproj, const char *task) {
     size_t len = strlen(subproj) + sizeof(mid) + strlen(task) + 3 + 20;
     char *cmd = malloc(len);
 
-#ifdef _WIN32
-    sprintf(cmd, "cd %s && .\%s%s && cd ..", subproj, mid, task);
-#else
     sprintf(cmd, "cd %s && ./%s%s && cd ..", subproj, mid, task);
-#endif 
 
     enum CompileResult res = shell(cmd);
     free(cmd);
