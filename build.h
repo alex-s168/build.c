@@ -38,6 +38,10 @@
 # define VERBOSE   0
 #endif 
 
+#ifndef SELF_PATH
+# define SELF_PATH "build_c/"
+#endif
+
 #if defined(_WIN32) && !defined(SERIAL_COMP)
 # define SERIAL_COMP
 #endif 
@@ -239,6 +243,25 @@ int system_impl(const char *command) {
 
 #define STR2(v) #v
 #define STR(v) STR2(v)
+
+bool file_changed(const char *path) {
+    static char cmd[256];
+    sprintf(cmd, SELF_PATH "/changed.sh %s", path);
+    return (bool) system(cmd);
+}
+
+bool source_changed(struct CompileData *items, size_t len) {
+    for (size_t i = 0; i < len; i ++)
+        if (items[i].srcFile[0] != '\0')
+            if (file_changed(items[i].srcFile))
+                return true;
+    return false;
+}
+
+#define ONLY_IF(block) { bool skip = true; block; if (skip) return CR_OK; }
+#define NOT_FILE(file)   if (!exists(file)) { skip = false; }
+#define CHANGED(file)    if (file_changed(file)) { skip = false; }
+#define SRC_CHANGED(i,l) if (source_changed(i,l)) { skip = false; }
 
 #define subproject(path, outpath) \
     shell(CC" -DCC=\"\\\"" CC "\\\"\" -DCXX=\"\\\"" CXX "\\\"\" -DCC_ARGS=\"\\\"" CC_ARGS "\\\"\" -DCXX_ARGS=\"\\\"" CXX_ARGS "\\\"\" -DAR=\"\\\"" AR "\\\"\" -DLD_ARGS=\"\\\"" LD_ARGS "\\\"\" -DVERBOSE=" STR(VERBOSE) " " CC_ARGS " " path " -o " outpath)
