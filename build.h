@@ -61,6 +61,9 @@
 # include <unistd.h>
 #endif 
 
+#define MINIRENT_IMPLEMENTATION
+#include "minirent.h"
+
 #define error(msg) fprintf(stderr, "%s", msg)
 
 enum CompileType {
@@ -70,6 +73,7 @@ enum CompileType {
     CT_DEP,
     CT_DIR,
     CT_RUN,
+    CT_LDARG,
 };
 
 enum CompileResult {
@@ -101,6 +105,7 @@ bool exists(const char *file) {
 
 #define SP(typeIn, file) { .type = typeIn, .srcFile = file, .outFile = "build/" file ".o" }
 #define DEP(file) { .type = CT_DEP, .srcFile = "", .outFile = file }
+#define LDARG(a)  { .type = CT_LDARG, .srcFile = "", .outFile = a }
 #define DIR(dir)  { .type = CT_DIR, .srcFile = "", .outFile = dir }
 #define RUN(exe)  { .type = CT_RUN, .srcFile = exe,  .outFile = "" }
 
@@ -516,7 +521,7 @@ enum CompileResult allRun(struct CompileData *objs, size_t len) {
     return CR_OK;
 }
 
-enum CompileResult test_impl(char *outFile, size_t id, struct CompileData *data, size_t dataLen) {
+enum CompileResult test_impl_ex(char *outFile, const char *name, struct CompileData *data, size_t dataLen) {
     {
        enum CompileResult r = verifyDependencies(data, dataLen);
        if (r != CR_OK)
@@ -541,11 +546,51 @@ enum CompileResult test_impl(char *outFile, size_t id, struct CompileData *data,
             goto fail;
     }
 
-    printf("Test %zu: OK\n", id);
+    printf("%s: OK\n", name);
     return CR_OK;
 
 fail:
-    printf("Test %zu: FAIL\n", id);
+    printf("%s: FAIL\n", name);
     return CR_FAIL;
 }
 
+enum CompileResult test_impl(char *outFile, size_t id, struct CompileData *data, size_t dataLen) {
+    char buf[64];
+    sprintf(buf, "Test %zu", id);
+    return test_impl_ex(outFile, buf, data, dataLen);
+}
+
+enum CompileResult test_dir(const char *dirp, struct CompileData *data, size_t dataLen) {
+    START_TESTING;
+
+    DIR *dir = opendir(dirp);
+
+    struct dirent *dp = NULL;
+    while ((dp = readdir(dir))) {
+        if (!strcmp(dp->d_name, ".") || !strcmp(dp->d_name, "..")) {
+            continue;
+        }
+
+        static char infile[256];
+        sprintf(infile, "%s/%s", dirp, dp->d_name);
+
+        static char outfile[256];
+        sprintf(outfile, "build/%s/%s.exe", dirp, dp->d_name);
+
+        static char objfile[256];
+        sprintf(objfile, "build/%s/%s.o", dirp, dp->d_name);
+
+        struct CompileData * dataex = malloc(sizeof(struct CompileData) * (dataLen + 2));
+        memcpy(dataex + 2, data, sizeof(struct CompileData) * dataLen);
+        dataex[0] = (struct CompileData) { .type = CT_C, .srcFile = infile, .outFile = objfile };
+        dataex[1] = (struct CompileData) RUN(outfile);
+
+        resTemp = test_impl_ex(outfile, dp->d_name, dataex, dataLen + 2);
+        free(dataex);
+        if (resTemp != CR_OK) res = resTemp;
+    }
+
+    (void) closedir(dir);
+
+    END_TESTING;
+}
