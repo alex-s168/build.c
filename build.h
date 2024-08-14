@@ -71,6 +71,7 @@ enum CompileType {
     CT_CXX,
     CT_NOC,
     CT_DEP,
+    CT_CDEF,
     CT_DIR,
     CT_RUN,
     CT_LDARG,
@@ -361,6 +362,26 @@ void *compileThread(void *arg) {
             printf("%i\n", res);
             return (void *) CR_FAIL;
         }
+    } else if (data->type == CT_CDEF) {
+        static char cmd[256];
+        sprintf(cmd, "python3 " SELF_PATH "cdef.py %s", data->srcFile);
+        int res = system(cmd);
+        if (res != 0) {
+            return (void *) CR_FAIL;
+        }
+        
+        size_t ofl = strlen(data->outFile);
+        char * cfile = malloc(ofl + 1);
+        memcpy(cfile, data->outFile, ofl + 1);
+        cfile[ofl - 1] = 'c';
+        
+        char *old = data->srcFile;
+        data->srcFile = cfile;
+        data->type = CT_C;
+        compileThread(arg);
+        data->type = CT_CDEF;
+        data->srcFile = old;
+        free(cfile);
     }
     return (void *) CR_OK;
 }
