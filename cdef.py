@@ -1,4 +1,5 @@
 import sys 
+import os
 from generic_lexer import Lexer
 
 path = sys.argv[1]
@@ -165,6 +166,6 @@ def parse(fileHeader, fileSource):
 with open("build/" + path + ".h", 'w') as f0:
     with open("build/" + path + ".c", 'w') as f1:
         f0.write("#include <stdint.h>\n#include <stdbool.h>\n\n")
-        f1.write("#include \"" + path + ".h\"\n\n")
+        f1.write("#include \"" + os.path.basename(path) + ".h\"\n\n")
         while len(out) > 0:
             parse(f0, f1)

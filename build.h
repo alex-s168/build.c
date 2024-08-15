@@ -34,6 +34,10 @@
 # define LD_ARGS   ""
 #endif
 
+#ifndef PYTHON
+# define PYTHON    "python3"
+#endif
+
 #ifndef VERBOSE
 # define VERBOSE   0
 #endif 
@@ -364,7 +368,7 @@ void *compileThread(void *arg) {
         }
     } else if (data->type == CT_CDEF) {
         static char cmd[256];
-        sprintf(cmd, "python3 " SELF_PATH "cdef.py %s", data->srcFile);
+        sprintf(cmd, PYTHON " " SELF_PATH "cdef.py %s", data->srcFile);
         int res = system(cmd);
         if (res != 0) {
             return (void *) CR_FAIL;
