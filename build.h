@@ -47,7 +47,7 @@
 #endif
 
 #if defined(_WIN32) && !defined(SERIAL_COMP)
-# define SERIAL_COMP
+# define SERIAL_COMP 1
 #endif 
 
 /* ========================================================================= */
@@ -57,10 +57,13 @@
 #include <string.h>
 #include <stdbool.h>
 
+#if !SERIAL_COMP
+# include <pthread.h>
+#endif
+
 #ifdef _WIN32
 # include <io.h>
 #else 
-# include <pthread.h>
 # include <signal.h>
 # include <unistd.h>
 #endif 
@@ -79,6 +82,7 @@ enum CompileType {
     CT_DIR,
     CT_RUN,
     CT_LDARG,
+    CT_CCARG,
 };
 
 enum CompileResult {
@@ -93,6 +97,13 @@ struct CompileData {
     enum CompileType type;
 };
 
+struct CompileThreadData {
+    struct CompileData * data;
+
+    const char * ccArgs;
+    size_t       ccArgsLen;
+};
+
 void *compileThread(void *arg);
 enum CompileResult linkTask(struct CompileData *objs, size_t len, char *out);
 enum CompileResult link_exe(struct CompileData *objs, size_t len, char *out);
@@ -102,7 +113,8 @@ enum CompileResult allRun(struct CompileData *objs, size_t len);
 
 bool exists(const char *file) {
 #ifdef _WIN32 
-    return _access(file, 0) == 0;
+    DWORD attrib = GetFileAttributes(file);
+    return attrib != INVALID_FILE_ATTRIBUTES;
 #else 
     return access((char *)file, F_OK) == 0;
 #endif 
@@ -111,6 +123,7 @@ bool exists(const char *file) {
 #define SP(typeIn, file) { .type = typeIn, .srcFile = file, .outFile = "build/" file ".o" }
 #define DEP(file) { .type = CT_DEP, .srcFile = "", .outFile = file }
 #define LDARG(a)  { .type = CT_LDARG, .srcFile = "", .outFile = a }
+#define CCARG(a)  { .type = CT_CCARG, .srcFile = "", .outFile = a }
 #define DIR(dir)  { .type = CT_DIR, .srcFile = "", .outFile = dir }
 #define RUN(exe)  { .type = CT_RUN, .srcFile = exe,  .outFile = "" }
 
@@ -269,12 +282,12 @@ bool source_changed(struct CompileData *items, size_t len) {
 }
 
 #define ONLY_IF(block) { bool skip = true; block; if (skip) return CR_OK; }
-#define NOT_FILE(file)   if (!exists(file)) { skip = false; }
-#define CHANGED(file)    if (file_changed(file)) { skip = false; }
-#define SRC_CHANGED(i,l) if (source_changed(i,l)) { skip = false; }
+#define NOT_FILE(file)   if (skip && !exists(file)) { skip = false; }
+#define CHANGED(file)    if (skip && file_changed(file)) { skip = false; }
+#define SRC_CHANGED(i,l) if (skip && source_changed(i,l)) { skip = false; }
 
 #define subproject(path, outpath) \
-    shell(CC" -DCC=\"\\\"" CC "\\\"\" -DCXX=\"\\\"" CXX "\\\"\" -DCC_ARGS=\"\\\"" CC_ARGS "\\\"\" -DCXX_ARGS=\"\\\"" CXX_ARGS "\\\"\" -DAR=\"\\\"" AR "\\\"\" -DLD_ARGS=\"\\\"" LD_ARGS "\\\"\" -DVERBOSE=" STR(VERBOSE) " " CC_ARGS " " path " -o " outpath)
+    shell(CC" -DSERIAL_COMP=" SERIAL_COMP " -DCC=\"\\\"" CC "\\\"\" -DCXX=\"\\\"" CXX "\\\"\" -DCC_ARGS=\"\\\"" CC_ARGS "\\\"\" -DCXX_ARGS=\"\\\"" CXX_ARGS "\\\"\" -DAR=\"\\\"" AR "\\\"\" -DLD_ARGS=\"\\\"" LD_ARGS "\\\"\" -DVERBOSE=" STR(VERBOSE) " " CC_ARGS " " path " -o " outpath)
 
 #define ss(dir, block) { DO(subproject(dir "build.c", dir "build.exe")); const char *subproject = dir; block; }
 
@@ -343,11 +356,12 @@ int build_main(int argc, char **argv,
 }
 
 void *compileThread(void *arg) {
-    struct CompileData *data = arg;
+    struct CompileThreadData * ctd = arg;
+    struct CompileData *data = ctd->data;
     if (data->type == CT_C) {
         char *args = malloc(strlen(data->srcFile) + strlen(data->outFile) +
-                            sizeof(CC) + 9 + sizeof(CC_ARGS));
-        sprintf(args, "%s -c %s -o %s " CC_ARGS, CC, data->srcFile, data->outFile);
+                            sizeof(CC) + 9 + sizeof(CC_ARGS) + ctd->ccArgsLen);
+        sprintf(args, "%s -c %s -o %s " CC_ARGS " %s", CC, data->srcFile, data->outFile, ctd->ccArgs);
 
         int res = system(args);
         free(args);
@@ -357,8 +371,8 @@ void *compileThread(void *arg) {
         }
     } else if (data->type == CT_CXX) {
         char *args = malloc(strlen(data->srcFile) + strlen(data->outFile) +
-                            sizeof(CXX) + 9 + sizeof(CXX_ARGS));
-        sprintf(args, "%s -c %s -o %s " CXX_ARGS, CXX, data->srcFile, data->outFile);
+                            sizeof(CXX) + 9 + sizeof(CXX_ARGS) + ctd->ccArgsLen);
+        sprintf(args, "%s -c %s -o %s " CXX_ARGS " %s", CXX, data->srcFile, data->outFile, ctd->ccArgs);
 
         int res = system(args);
         free(args);
@@ -403,7 +417,7 @@ enum CompileResult linkTask(struct CompileData *objs, size_t len, char *out) {
 
     for (size_t i = 0; i < len; i ++) {
         struct CompileData cd = objs[i];
-        if (cd.type == CT_DIR)
+        if (cd.type == CT_DIR || cd.type == CT_LDARG || cd.type == CT_CCARG)
             continue;
 
         strcat(cmd, cd.outFile);
@@ -428,7 +442,7 @@ enum CompileResult link_exe(struct CompileData *objs, size_t len, char *out) {
 
     for (size_t i = 0; i < len; i ++) {
         struct CompileData cd = objs[i];
-        if (cd.type == CT_DIR)
+        if (cd.type == CT_DIR || cd.type == CT_LDARG || cd.type == CT_CCARG)
             continue;
 
         strcat(cmd, cd.outFile);
@@ -455,36 +469,67 @@ int mkdir(const char *path) {
 }
 
 enum CompileResult compile(struct CompileData *objs, size_t len) {
-#ifdef SERIAL_COMP 
+    size_t extraArgsLen = 0;
+    for (size_t i = 0; i < len; i ++) {
+        if (objs[i].type == CT_CCARG) {
+            extraArgsLen += strlen(objs[i].outFile) + 1;
+        }
+    }
+
+    char * extraArgs = malloc(extraArgsLen + 1);
+    extraArgs[0] = 0;
+    for (size_t i = 0; i < len; i ++) {
+        if (objs[i].type == CT_CCARG) {
+            if (i > 0) {
+                strcat(extraArgs, " ");
+            }
+            strcat(extraArgs, objs[i].outFile);
+        }
+    }
+
+#if SERIAL_COMP 
     for (size_t i = 0; i < len; i ++) {
         struct CompileData *data = &objs[i];
 
         if (data->type == CT_DIR) {
             (void) mkdir(data->outFile);
+        } else if (data->type == CT_CCARG) {
         } else {
-            enum CompileResult res = (enum CompileResult) (intptr_t) compileThread(data);
+            struct CompileThreadData ctd;
+            ctd.data = data;
+            ctd.ccArgs = extraArgs;
+            ctd.ccArgsLen = extraArgsLen;
+            enum CompileResult res = (enum CompileResult) (intptr_t) compileThread(&ctd);
             if (res != CR_OK)
                 return res;
         }
     }
+    free(extraArgs);
     return CR_OK;
 #else 
     pthread_t *threads = malloc(sizeof(pthread_t) * len);
+    struct CompileThreadData *datas = malloc(sizeof(struct CompileThreadData) * len);
 
     for (size_t i = 0; i < len; i ++) {
         struct CompileData *data = &objs[i];        
-
-        pthread_create(&threads[i], NULL, compileThread, data);
 
         if (data->type == CT_DIR) {
             char *args = malloc(strlen(data->outFile) + sizeof(MKDIR) + 1);
             sprintf(args, "%s %s", MKDIR, data->outFile);
             (void) system(args);
             free(args);
+        } else if (data->type == CT_CCARG) {
+        } else {
+            datas[i].data = data;
+            datas[i].ccArgs = extraArgs;
+            datas[i].ccArgsLen = extraArgsLen;
+            pthread_create(&threads[i], NULL, compileThread, &datas[i]);
         }
     }
 
     for (size_t i = 0; i < len; i ++) {
+        if (objs[i].type == CT_DIR || objs[i].type == CT_CCARG) continue;
+
         void *resr;
         pthread_join(threads[i], &resr);
         enum CompileResult res = (enum CompileResult) (intptr_t) resr;
@@ -494,14 +539,20 @@ enum CompileResult compile(struct CompileData *objs, size_t len) {
                 if (i == j)
                     continue;
 
+                if (objs[j].type == CT_DIR || objs[j].type == CT_CCARG) continue;
                 pthread_kill(threads[j], SIGABRT);
             }
+
             free(threads);
+            free(extraArgs);
+            free(datas);
             return CR_FAIL;
         }
     }
 
     free(threads);
+    free(extraArgs);
+    free(datas);
     return CR_OK;
 #endif 
 }
