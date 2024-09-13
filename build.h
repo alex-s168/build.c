@@ -127,7 +127,7 @@ bool exists(const char *file) {
 #define DIR(dir)  { .type = CT_DIR, .srcFile = "", .outFile = dir }
 #define RUN(exe)  { .type = CT_RUN, .srcFile = exe,  .outFile = "" }
 
-#define START   enum CompileResult res
+#define START   enum CompileResult res = CR_OK;
 #define DO(cmd) res = cmd; if (res != CR_OK) return res;
 #define END     return CR_OK;
 #define LEN(li) (sizeof(li) / sizeof(li[0]))
@@ -136,7 +136,7 @@ bool exists(const char *file) {
 
 enum CompileResult test_impl(char *outFile, size_t id, struct CompileData *data, size_t dataLen);
 
-#define START_TESTING enum CompileResult res; enum CompileResult resTemp;
+#define START_TESTING enum CompileResult res = CR_OK; enum CompileResult resTemp;
 #define END_TESTING   return res;
 
 #define test(indir, infile, id, type, ...) \
