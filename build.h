@@ -417,7 +417,7 @@ enum CompileResult linkTask(struct CompileData *objs, size_t len, char *out) {
 
     for (size_t i = 0; i < len; i ++) {
         struct CompileData cd = objs[i];
-        if (cd.type == CT_DIR || cd.type == CT_LDARG || cd.type == CT_CCARG)
+        if (cd.type == CT_DIR || cd.type == CT_CCARG)
             continue;
 
         strcat(cmd, cd.outFile);
@@ -442,7 +442,7 @@ enum CompileResult link_exe(struct CompileData *objs, size_t len, char *out) {
 
     for (size_t i = 0; i < len; i ++) {
         struct CompileData cd = objs[i];
-        if (cd.type == CT_DIR || cd.type == CT_LDARG || cd.type == CT_CCARG)
+        if (cd.type == CT_DIR || cd.type == CT_CCARG)
             continue;
 
         strcat(cmd, cd.outFile);
