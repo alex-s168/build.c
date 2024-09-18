@@ -118,6 +118,12 @@ def parse(fileHeader, fileSource):
     fileHeader.write("} " + name + "__entry;\n\n")
         
     popty(")")
+
+    entry_prefix = name + "_"
+    if out[0].val == "enum_entry_prefix":
+        out.pop(0)
+        entry_prefix = out.pop(0).val[1:-1]
+
     popty("{")
 
     options = {}
@@ -137,18 +143,19 @@ def parse(fileHeader, fileSource):
     popty("}")
 
     fileHeader.write("#define " + name + "__len (" + str(len(options)) + ")\n\n")
-    fileHeader.write("extern " + name + "__entry " + name + "__entries[" + name + "__len];\n\n");
+    fileHeader.write("extern " + name + "__entry " + name + "__entries[" + name + "__len];\n\n")
 
+    fileHeader.write("typedef enum {\n")
     for i, key in enumerate(options):
-        fileHeader.write("#define " + name + "_" + key + " (" + str(i) + ")\n")
-    fileHeader.write("\n")
+        fileHeader.write("  " + entry_prefix + key + " = " + str(i) + ",\n")
+    fileHeader.write("} " + name + ";\n")
 
-    fileSource.write("// Table " + name + "\n\n");
-    fileSource.write(name + "__entry " + name + "__entries[" + name + "__len] = {\n");
+    fileSource.write("// Table " + name + "\n\n")
+    fileSource.write(name + "__entry " + name + "__entries[" + name + "__len] = {\n")
 
     for key in options:
         val = options[key]
-        fileSource.write("  (" + name + "__entry) {\n")
+        fileSource.write("  [" + entry_prefix + key + "] = (" + name + "__entry) {\n")
         for member in args:
             memberKey = member[0]
             memberTypes = member[1]
