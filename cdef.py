@@ -29,6 +29,13 @@ for token in Lexer(rules, False, content):
     if not (token.name == "SPACE" or token.name == "COMMENT"):
         out.append(token)
 
+def escape(name):
+    keywords = ["volatile","for","while","do","break","continue","goto","static","inline","extern"]
+    for kw in keywords:
+        if name == kw:
+            return "_" + name
+    return name
+
 def popty(ty):
     v = out.pop(0)
     if (v.name != ty):
@@ -79,8 +86,8 @@ def immedv(tks):
     return res
 
 def parse(fileHeader, fileSource):
-    ty = popty("VARIABLE").val
-    name = popty("VARIABLE").val 
+    ty = escape(popty("VARIABLE").val)
+    name = escape(popty("VARIABLE").val)
     popty("(")
 
     args = []
@@ -107,7 +114,7 @@ def parse(fileHeader, fileSource):
                 fileHeader.write("    " + x + " " + str(enum) + ";\n")
                 enum = chr(ord(enum) + 1)
 
-        fileHeader.write("  } " + arg[0] + ";\n")
+        fileHeader.write("  } " + escape(arg[0]) + ";\n")
     fileHeader.write("} " + name + "__entry;\n\n")
         
     popty(")")
@@ -116,7 +123,7 @@ def parse(fileHeader, fileSource):
     options = {}
     while out[0].val == "entry":
         popty("VARIABLE")
-        nam = popty("VARIABLE").val
+        nam = escape(popty("VARIABLE").val)
         try:
             values = {x[0].val: immedv(x[1]) for x in chunk(bundle(until(";")), 2)}
             for arg in args:
@@ -150,13 +157,13 @@ def parse(fileHeader, fileSource):
                 imm = val[memberKey]
 
                 if memberTypes[0].name == '?':
-                    fileSource.write("    ." + memberKey + ".set = true,\n")
+                    fileSource.write("    ." + escape(memberKey) + ".set = true,\n")
 
                 for x in imm:
-                    fileSource.write("    ." + memberKey + "." + enum + " = " + x + ",\n")
+                    fileSource.write("    ." + escape(memberKey) + "." + enum + " = " + x + ",\n")
                     enum = chr(ord(enum) + 1)
             else:
-                fileSource.write("    ." + memberKey + ".set = false,\n")
+                fileSource.write("    ." + escape(memberKey) + ".set = false,\n")
 
         fileSource.write("  },\n")
 
