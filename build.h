@@ -381,25 +381,25 @@ void *compileThread(void *arg) {
             return (void *) CR_FAIL;
         }
     } else if (data->type == CT_CDEF) {
-        static char cmd[256];
+        char* cmd = malloc(2 + sizeof(PYTHON) + sizeof(SELF_PATH) + strlen(data->srcFile) + 7);
         sprintf(cmd, PYTHON " " SELF_PATH "cdef.py %s", data->srcFile);
         int res = system(cmd);
+        free(cmd);
         if (res != 0) {
-            return (void *) CR_FAIL;
+            return (void*) CR_FAIL;
         }
-        
+
         size_t ofl = strlen(data->outFile);
         char * cfile = malloc(ofl + 1);
         memcpy(cfile, data->outFile, ofl + 1);
         cfile[ofl - 1] = 'c';
         
-        char *old = data->srcFile;
         data->srcFile = cfile;
         data->type = CT_C;
-        compileThread(arg);
-        data->type = CT_CDEF;
-        data->srcFile = old;
+        enum CompileResult r = (intptr_t) compileThread(arg);
         free(cfile);
+        if (r != CR_OK)
+            return (void*) r; 
     }
     return (void *) CR_OK;
 }
@@ -487,22 +487,27 @@ enum CompileResult compile(struct CompileData *objs, size_t len) {
         }
     }
 
-#if SERIAL_COMP 
     for (size_t i = 0; i < len; i ++) {
         struct CompileData *data = &objs[i];
 
         if (data->type == CT_DIR) {
             (void) mkdir(data->outFile);
-        } else if (data->type == CT_CCARG) {
-        } else {
-            struct CompileThreadData ctd;
-            ctd.data = data;
-            ctd.ccArgs = extraArgs;
-            ctd.ccArgsLen = extraArgsLen;
-            enum CompileResult res = (enum CompileResult) (intptr_t) compileThread(&ctd);
-            if (res != CR_OK)
-                return res;
         }
+    }
+
+#if SERIAL_COMP 
+    for (size_t i = 0; i < len; i ++) {
+        struct CompileData *data = &objs[i];
+
+        if (data->type == CT_CCARG || data->type == CT_DIR) continue;
+
+        struct CompileThreadData ctd;
+        ctd.data = data;
+        ctd.ccArgs = extraArgs;
+        ctd.ccArgsLen = extraArgsLen;
+        enum CompileResult res = (enum CompileResult) (intptr_t) compileThread(&ctd);
+        if (res != CR_OK)
+            return res;
     }
     free(extraArgs);
     return CR_OK;
@@ -513,18 +518,11 @@ enum CompileResult compile(struct CompileData *objs, size_t len) {
     for (size_t i = 0; i < len; i ++) {
         struct CompileData *data = &objs[i];        
 
-        if (data->type == CT_DIR) {
-            char *args = malloc(strlen(data->outFile) + sizeof(MKDIR) + 1);
-            sprintf(args, "%s %s", MKDIR, data->outFile);
-            (void) system(args);
-            free(args);
-        } else if (data->type == CT_CCARG) {
-        } else {
-            datas[i].data = data;
-            datas[i].ccArgs = extraArgs;
-            datas[i].ccArgsLen = extraArgsLen;
-            pthread_create(&threads[i], NULL, compileThread, &datas[i]);
-        }
+        if (data->type == CT_DIR || data->type == CT_CCARG) continue;
+        datas[i].data = data;
+        datas[i].ccArgs = extraArgs;
+        datas[i].ccArgsLen = extraArgsLen;
+        pthread_create(&threads[i], NULL, compileThread, &datas[i]);
     }
 
     for (size_t i = 0; i < len; i ++) {
