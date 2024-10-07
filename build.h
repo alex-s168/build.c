@@ -132,7 +132,33 @@ bool exists(const char *file) {
 #define END     return CR_OK;
 #define LEN(li) (sizeof(li) / sizeof(li[0]))
 #define LI(li)  li, LEN(li)
+#define VLI(li) li.data, li.len 
 #define DO_IGNORE(cmd)  (void) cmd;
+
+typedef struct {
+    struct CompileData *data;
+    size_t len;
+} VaList;
+
+static VaList newVaList(void) {
+    return (VaList) { NULL, 0 };
+}
+
+static void vaListFree(VaList vl) {
+    free(vl.data);
+}
+
+static VaList vaListConcat(VaList a, VaList b)
+{
+    VaList res = newVaList();
+    res.data = (struct CompileData *) malloc(sizeof(struct CompileData) * (a.len + b.len));
+    res.len = a.len + b.len;
+    memcpy(res.data, a.data, sizeof(struct CompileData) * a.len);
+    memcpy(res.data + a.len, b.data, sizeof(struct CompileData) * b.len);
+    return res;
+}
+
+#define ASVAR(arr) ((VaList) { LI(arr) })
 
 enum CompileResult test_impl(char *outFile, size_t id, struct CompileData *data, size_t dataLen);
 
@@ -668,3 +694,8 @@ enum CompileResult test_dir(const char *dirp, struct CompileData *data, size_t d
 
     END_TESTING;
 }
+
+#define automain(targets) \
+    int main(int argc, char **argv) { \
+        return build_main(argc, argv, targets, (sizeof(targets) / sizeof(targets[0]))); \
+    }
