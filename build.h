@@ -34,10 +34,6 @@
 # define LD_ARGS   ""
 #endif
 
-#ifndef PYTHON
-# define PYTHON    "python3"
-#endif
-
 #ifndef VERBOSE
 # define VERBOSE   0
 #endif 
@@ -397,6 +393,76 @@ int cdb_get(const char * key, time_t * out) {
     return ptr == NULL;
 }
 
+/**  
+ * example:
+ * \code 
+ * if (cdb_notHaveAndSet("_pip_genericlexer")) {
+ *     system("pip install genericlexer");
+ * }
+ * \endcode 
+ */ 
+bool cdb_notHaveAndSet(const char * key) { 
+#if !SERIAL_COMP
+    mutex_lock(&changedMut);
+#endif 
+
+    void * ptr = includedb_get(changedDb,
+            (const unsigned char *) key, strlen(key),
+            NULL);
+
+    if (ptr == NULL) {
+        unsigned char p = 0;
+        includedb_put(changedDb,
+                (const unsigned char *) key, strlen(key),
+                &p, sizeof(unsigned char));
+    }
+
+#if !SERIAL_COMP
+    mutex_unlock(&changedMut);
+#endif 
+
+    return ptr == NULL;
+}
+
+char *cdb_getStrHeap(const char * key) {
+#if !SERIAL_COMP
+    mutex_lock(&changedMut);
+#endif 
+
+    int len;
+    void * ptr = includedb_get(changedDb,
+            (const unsigned char *) key, strlen(key),
+            &len);
+
+    if (ptr) {
+        const void * old = ptr;
+        ptr = malloc(sizeof(char) * (len + 1));
+        memcpy(ptr, ptr, sizeof(char) * len);
+        ((char *) ptr)[len] = '\0';
+    }
+
+#if !SERIAL_COMP
+    mutex_unlock(&changedMut);
+#endif 
+
+    return (char *) ptr;
+}
+
+/** ONLY CAN BE CALLED ONCE PER KEY EVER */ 
+void cdb_setStrInitial(const char * key, const char * value) {
+#if !SERIAL_COMP
+    mutex_lock(&changedMut);
+#endif 
+
+    includedb_put(changedDb,
+            (const unsigned char *) key, strlen(key),
+            (const unsigned char *) value, strlen(value));
+
+#if !SERIAL_COMP
+    mutex_unlock(&changedMut);
+#endif 
+}
+
 void cdb_set(const char * key, time_t const* time) {
     struct tm * t = localtime(time);
 
@@ -455,6 +521,57 @@ bool source_changed(struct CompileData *items, size_t len) {
             if (file_changed(items[i].srcFile))
                 return true;
     return false;
+}
+
+const char * findPython(void) {
+    static const char * ptr = NULL;
+    if (ptr) return ptr;
+
+    ptr = cdb_getStrHeap("_py_path");
+    if (ptr) return ptr;
+
+    if (exists("venv/bin/python3"))
+        ptr = "venv/bin/python3";
+    else if (exists("venv/Scripts/python"))
+        ptr = "venv/Scripts/python";
+    else if (system("python --help &>/dev/null") == 0)
+        ptr = "python";
+    else if (system("python3 --help &>/dev/null") == 0)
+        ptr = "python3";
+    else {
+        error("python not found! tried \"python\" and \"python3\"! Set \"python\" variable or install python!\n");   
+        return NULL;
+    }
+
+    cdb_setStrInitial("_py_path", ptr);
+
+    return ptr;
+}
+
+/** 
+ * Example:
+ * \code 
+ * if (withPipPackage("aaaf")) {
+ *     // do stuff with pkg
+ * }
+ * /endcode 
+ */
+bool withPipPackage(const char * pkg) {
+    char pkgb[64];
+    sprintf(pkgb, "_py_mod_%s", pkg);
+
+    if (cdb_notHaveAndSet(pkgb)) {
+        const char * py = findPython();
+        if (!py) return false;
+
+        char buf[512];
+        sprintf(buf, "%s -m pip install %s", py, pkg);
+
+        if (system(buf) != 0)
+            return false;
+    }
+
+    return true;
 }
 
 #define ONLY_IF(block) { bool skip = true; block; if (skip) return CR_OK; }
@@ -594,8 +711,9 @@ void *compileThread(void *arg) {
             return (void *) CR_FAIL;
         }
     } else if (data->type == CT_CDEF) {
-        char* cmd = malloc(2 + sizeof(PYTHON) + sizeof(SELF_PATH) + strlen(data->srcFile) + 7);
-        sprintf(cmd, PYTHON " " SELF_PATH "cdef.py %s", data->srcFile);
+        const char * python = findPython();
+        char* cmd = malloc(3 + strlen(python) + sizeof(SELF_PATH) + strlen(data->srcFile) + 7);
+        sprintf(cmd, "%s " SELF_PATH "cdef.py %s", python, data->srcFile);
         int res = system(cmd);
         free(cmd);
         if (res != 0) {
