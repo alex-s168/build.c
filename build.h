@@ -44,21 +44,28 @@
 
 #ifndef SELF_PATH
 # define SELF_PATH "build_c/"
-#endif
+#endif 
 
-#if defined(_WIN32) && !defined(SERIAL_COMP)
-# define SERIAL_COMP 1
+#if !defined(SERIAL_COMP)
+# define SERIAL_COMP 0
 #endif 
 
 /* ========================================================================= */
+
+#define _CRT_SECURE_NO_WARNINGS
 
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <stdbool.h>
+#include <time.h>
+
+#include "utils.h"
 
 #if !SERIAL_COMP
-# include <pthread.h>
+# define _UTHREAD_H_IMPL
+# include "uthread.h" 
+# include "mutex.h"
 #endif
 
 #ifdef _WIN32
@@ -71,7 +78,11 @@
 #define MINIRENT_IMPLEMENTATION
 #include "minirent.h"
 
-#define error(msg) fprintf(stderr, "%s", msg)
+#define INCLUDEDB_IMPLEMENTATION
+#define DISABLE_TESTS
+#include "includedb.h"
+
+#define error(msg, ...) fprintf(stderr, msg __VA_OPT__(,) __VA_ARGS__)
 
 enum CompileType {
     CT_C,
@@ -122,6 +133,7 @@ bool exists(const char *file) {
 
 #define SP(typeIn, file) { .type = typeIn, .srcFile = file, .outFile = "build/" file ".o" }
 #define DEP(file) { .type = CT_DEP, .srcFile = "", .outFile = file }
+#define NOLD_DEP(file) { .type = CT_NOC, .srcFile = "", .outFile = file }
 #define LDARG(a)  { .type = CT_LDARG, .srcFile = "", .outFile = a }
 #define CCARG(a)  { .type = CT_CCARG, .srcFile = "", .outFile = a }
 #define DIR(dir)  { .type = CT_DIR, .srcFile = "", .outFile = dir }
@@ -293,10 +305,91 @@ int system_impl(const char *command) {
 #define STR2(v) #v
 #define STR(v) STR2(v)
 
+includeDB* changedDb = NULL;
+#if !SERIAL_COMP
+mutex_t changedMut;
+#endif
+
+#include <sys/stat.h>
+int file_mod_time(const char * path, time_t * out)
+{
+    FILE* f = fopen(path, "r");
+    if (f == NULL) return 1;
+    struct stat st;
+    fstat(fileno(f), &st);
+    *out = st.st_mtime;
+    fclose(f);
+    return 0;
+}
+
+int cdb_get(const char * key, time_t * out) {
+#if !SERIAL_COMP
+    mutex_lock(&changedMut);
+#endif 
+
+    void * ptr = includedb_get(changedDb,
+            (const unsigned char *) key, strlen(key),
+            NULL);
+
+    if (ptr != NULL) {
+        struct tm * t = (struct tm *) ptr;
+        *out = mktime(t);
+    }
+
+#if !SERIAL_COMP
+    mutex_unlock(&changedMut);
+#endif 
+
+    return ptr == NULL;
+}
+
+void cdb_set(const char * key, time_t const* time) {
+    struct tm * t = localtime(time);
+
+    size_t keylen = strlen(key);
+
+#if !SERIAL_COMP
+    mutex_lock(&changedMut);
+#endif 
+
+    unsigned char * curr = includedb_get(changedDb,
+            (const unsigned char *) key, keylen,
+            NULL);
+
+    int v = includedb_ok;
+    if (curr) {
+        memcpy(curr,
+                (const unsigned char *) t, sizeof(struct tm));
+    } 
+    else {
+        v = includedb_put(changedDb, 
+                (const unsigned char *) key, keylen,
+                (const unsigned char *) t, sizeof(struct tm));
+    }
+
+#if !SERIAL_COMP
+    mutex_unlock(&changedMut);
+#endif 
+    assert(v == includedb_ok);
+}
+
 bool file_changed(const char *path) {
-    static char cmd[256];
-    sprintf(cmd, SELF_PATH "/changed.sh %s", path);
-    return (bool) system(cmd);
+    time_t cached;
+    if (cdb_get(path, &cached)) {
+        if (!file_mod_time(path, &cached))
+            cdb_set(path, &cached);
+        return true;
+    }
+
+    time_t mod;
+    if (file_mod_time(path, &mod))
+        return true;
+
+    if (cached == mod)
+        return false;
+
+    cdb_set(path, &mod);
+    return true;
 }
 
 bool source_changed(struct CompileData *items, size_t len) {
@@ -316,6 +409,14 @@ bool source_changed(struct CompileData *items, size_t len) {
     shell(CC" -DSERIAL_COMP=" STR(SERIAL_COMP) " -DCC=\"\\\"" CC "\\\"\" -DCXX=\"\\\"" CXX "\\\"\" -DCC_ARGS=\"\\\"" CC_ARGS "\\\"\" -DCXX_ARGS=\"\\\"" CXX_ARGS "\\\"\" -DAR=\"\\\"" AR "\\\"\" -DLD_ARGS=\"\\\"" LD_ARGS "\\\"\" -DVERBOSE=" STR(VERBOSE) " " CC_ARGS " " path " -o " outpath)
 
 #define ss(dir, block) { DO(subproject(dir "build.c", dir "build.exe")); const char *subproject = dir; block; }
+
+bool skipLinkFor(enum CompileType t) {
+    return t == CT_RUN || t == CT_DIR || t == CT_NOC || t == CT_CCARG;
+}
+
+bool skipCompileFor(enum CompileType t) {
+    return t == CT_RUN || t == CT_DIR || t == CT_NOC || t == CT_LDARG;
+}
 
 enum CompileResult ss_task_impl(const char *subproj, const char *task) {
     static char mid[] = "build.exe ";
@@ -356,26 +457,55 @@ int build_main(int argc, char **argv,
                struct Target *targets, size_t targets_len) {
 
     if (argc == 2) {
-        char *target = argv[1];
+        char *targetss = argv[1];
 
-        for (size_t i = 0; i < targets_len; i++) {
-            struct Target tg = targets[i];
-            if (strcmp(target, tg.name) != 0)
-                continue;
+        int cod = 0;
 
-            enum CompileResult r = tg.run();
-            if (r == CR_FAIL) {
-                error("FAIL\n");
-                return 1;
-            } else if (r == CR_FAIL_2) {
-                error("FAIL_2\n");
-                return 1;
+        changedDb = includedb_open("build.changed");
+        assert(changedDb);
+#if !SERIAL_COMP
+        mutex_create(&changedMut);
+#endif
+
+        SPLITERATE(targetss, ",", target) {
+            bool found = false;
+            for (size_t i = 0; i < targets_len; i++) {
+                struct Target tg = targets[i];
+                if (strcmp(target, tg.name) != 0)
+                    continue;
+                found = true;
+
+                enum CompileResult r = tg.run();
+
+                if (r == CR_FAIL) {
+                    error("FAIL\n");
+                    cod = 1;
+                    break;
+                } else if (r == CR_FAIL_2) {
+                    error("FAIL_2\n");
+                    cod = 1; 
+                    break;
+                }
             }
-            return 0;
+            if (!found) {
+                error("Invalid target %s! Targets:\n", target);
+                for (size_t i = 0; i < targets_len; i ++)
+                    fprintf(stderr, "- %s\n", targets[i].name);
+                cod = 2;
+                break;
+            }
         }
+
+#if !SERIAL_COMP
+        mutex_destroy(&changedMut);
+#endif 
+        includedb_close(changedDb);
+
+        return cod;
     }
 
-    error("Invalid target! Targets:\n");
+    error("Usage: %s target1,target2,...", argv[0]);
+    error("Available Targets:\n");
     for (size_t i = 0; i < targets_len; i ++)
         fprintf(stderr, "- %s\n", targets[i].name);
     return 2;
@@ -443,7 +573,7 @@ enum CompileResult linkTask(struct CompileData *objs, size_t len, char *out) {
 
     for (size_t i = 0; i < len; i ++) {
         struct CompileData cd = objs[i];
-        if (cd.type == CT_DIR || cd.type == CT_CCARG)
+        if (skipLinkFor(cd.type))
             continue;
 
         strcat(cmd, cd.outFile);
@@ -468,7 +598,7 @@ enum CompileResult link_exe(struct CompileData *objs, size_t len, char *out) {
 
     for (size_t i = 0; i < len; i ++) {
         struct CompileData cd = objs[i];
-        if (cd.type == CT_DIR || cd.type == CT_CCARG)
+        if (skipLinkFor(cd.type))
             continue;
 
         strcat(cmd, cd.outFile);
@@ -525,7 +655,7 @@ enum CompileResult compile(struct CompileData *objs, size_t len) {
     for (size_t i = 0; i < len; i ++) {
         struct CompileData *data = &objs[i];
 
-        if (data->type == CT_CCARG || data->type == CT_DIR) continue;
+        if (skipCompileFor(data->type)) continue;
 
         struct CompileThreadData ctd;
         ctd.data = data;
@@ -538,24 +668,24 @@ enum CompileResult compile(struct CompileData *objs, size_t len) {
     free(extraArgs);
     return CR_OK;
 #else 
-    pthread_t *threads = malloc(sizeof(pthread_t) * len);
+    uthread_t *threads = malloc(sizeof(uthread_t) * len);
     struct CompileThreadData *datas = malloc(sizeof(struct CompileThreadData) * len);
 
     for (size_t i = 0; i < len; i ++) {
         struct CompileData *data = &objs[i];        
 
-        if (data->type == CT_DIR || data->type == CT_CCARG) continue;
+        if (skipCompileFor(data->type)) continue;
         datas[i].data = data;
         datas[i].ccArgs = extraArgs;
         datas[i].ccArgsLen = extraArgsLen;
-        pthread_create(&threads[i], NULL, compileThread, &datas[i]);
+        uthread_create(&threads[i], compileThread, &datas[i]);
     }
 
     for (size_t i = 0; i < len; i ++) {
-        if (objs[i].type == CT_DIR || objs[i].type == CT_CCARG) continue;
+        if (skipCompileFor(objs[i].type)) continue;
 
         void *resr;
-        pthread_join(threads[i], &resr);
+        uthread_join(&threads[i], &resr);
         enum CompileResult res = (enum CompileResult) (intptr_t) resr;
 
         if (res != CR_OK) {
@@ -563,8 +693,8 @@ enum CompileResult compile(struct CompileData *objs, size_t len) {
                 if (i == j)
                     continue;
 
-                if (objs[j].type == CT_DIR || objs[j].type == CT_CCARG) continue;
-                pthread_kill(threads[j], SIGABRT);
+                if (skipCompileFor(objs[j].type)) continue;
+                uthread_kill(&threads[j]);
             }
 
             free(threads);
@@ -590,7 +720,7 @@ enum CompileResult verifyDependencies(struct CompileData *objs, size_t len) {
         char *f = objs[i].outFile;
         if (!exists(f)) {
             error("Missing dependency:\n ");
-            error(f);
+            error("%s", f);
             error("\n");
             err ++;
         }
@@ -609,7 +739,7 @@ enum CompileResult allRun(struct CompileData *objs, size_t len) {
         char *f = data->srcFile;
         if (!exists(f)) {
             error("Missing executable:\n");
-            error(f);
+            error("%s", f);
             error("\n");
             return CR_FAIL_2;
         }
