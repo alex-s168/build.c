@@ -185,8 +185,8 @@ enum CompileResult test_impl(char *outFile, size_t id, struct CompileData *data,
         RUN("build/" infile ".exe"), \
         __VA_ARGS__, \
     }; \
-    resTemp = test_impl("build/" infile ".exe", id, LI(d_##id)); \
-    if (resTemp != CR_OK) res = resTemp;
+resTemp = test_impl("build/" infile ".exe", id, LI(d_##id)); \
+if (resTemp != CR_OK) res = resTemp;
 
 #include <stdint.h>
 #include <stdlib.h>
@@ -232,38 +232,38 @@ size_t str_escape(char *dst, const char *src, size_t dstLen)
             case '\t': complexIdx++;
             case '\b': complexIdx++;
             case '\a':
-                if (dst && dstIdx <= dstLen - 2)
-                {
-                    dst[dstIdx++] = '\\';
-                    dst[dstIdx++] = complexCharMap[complexIdx];
-                }
-                else dstIdx += 2;
-                break;
+                       if (dst && dstIdx <= dstLen - 2)
+                       {
+                           dst[dstIdx++] = '\\';
+                           dst[dstIdx++] = complexCharMap[complexIdx];
+                       }
+                       else dstIdx += 2;
+                       break;
 
             default:
-                if (isprint(src[i]))
-                {
-                    // simply copy the character
-                    if (dst)
-                        dst[dstIdx++] = src[i];
-                    else
-                        dstIdx++;
-                }
-                else
-                {
-                    // produce octal escape sequence
-                    if (dst && dstIdx <= dstLen - 4)
-                    {
-                        dst[dstIdx++] = '\\';
-                        dst[dstIdx++] = ((src[i] & 0300) >> 6) + '0';
-                        dst[dstIdx++] = ((src[i] & 0070) >> 3) + '0';
-                        dst[dstIdx++] = ((src[i] & 0007) >> 0) + '0';
-                    }
-                    else
-                    {
-                        dstIdx += 4;
-                    }
-                }
+                       if (isprint(src[i]))
+                       {
+                           // simply copy the character
+                           if (dst)
+                               dst[dstIdx++] = src[i];
+                           else
+                               dstIdx++;
+                       }
+                       else
+                       {
+                           // produce octal escape sequence
+                           if (dst && dstIdx <= dstLen - 4)
+                           {
+                               dst[dstIdx++] = '\\';
+                               dst[dstIdx++] = ((src[i] & 0300) >> 6) + '0';
+                               dst[dstIdx++] = ((src[i] & 0070) >> 3) + '0';
+                               dst[dstIdx++] = ((src[i] & 0007) >> 0) + '0';
+                           }
+                           else
+                           {
+                               dstIdx += 4;
+                           }
+                       }
         }
     }
 
@@ -310,17 +310,71 @@ includeDB* changedDb = NULL;
 mutex_t changedMut;
 #endif
 
+#ifdef _WIN32 
+
+int file_mod_time(const char * path, time_t * out)
+{
+    char buf[512];
+    if (!GetFullPathNameA(path, sizeof(buf), buf, NULL))
+        return 1;
+
+    HANDLE file = CreateFileA(path, GENERIC_READ, FILE_SHARE_READ,  NULL,  OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL);
+    if (file == INVALID_HANDLE_VALUE)
+        return 1;
+
+    FILETIME ftMod;
+    if (!GetFileTime(file, NULL, NULL, &ftMod)) {
+        CloseHandle(file);
+        return 1;
+    }
+
+    CloseHandle(file);
+
+    FILETIME lftMod;
+    FileTimeToLocalFileTime(&ftMod, &lftMod);
+
+    SYSTEMTIME st;
+    FileTimeToSystemTime(&lftMod, &st);
+
+    struct tm tm;
+    tm.tm_sec = st.wSecond;
+    tm.tm_min = st.wMinute;
+    tm.tm_hour = st.wHour;
+    tm.tm_mday = st.wDay;
+    tm.tm_mon = st.wMonth - 1;
+    tm.tm_year = st.wYear - 1900;
+    tm.tm_isdst = -1;
+
+    *out = mktime(&tm);
+    return 0;
+}
+
+#else
+
 #include <sys/stat.h>
 int file_mod_time(const char * path, time_t * out)
 {
     FILE* f = fopen(path, "r");
-    if (f == NULL) return 1;
+    if (f == NULL) {
+        DIR* d = opendir(path);
+        if (d == NULL) return 1;
+        int fd = dirfd(d);
+        struct stat st;
+        fstat(fd, &st);
+        *out = st.st_mtime;
+        closedir(d);
+
+        return 0;
+    }
+
     struct stat st;
     fstat(fileno(f), &st);
     *out = st.st_mtime;
     fclose(f);
     return 0;
 }
+
+#endif 
 
 int cdb_get(const char * key, time_t * out) {
 #if !SERIAL_COMP
@@ -376,8 +430,11 @@ void cdb_set(const char * key, time_t const* time) {
 bool file_changed(const char *path) {
     time_t cached;
     if (cdb_get(path, &cached)) {
-        if (!file_mod_time(path, &cached))
+        if (file_mod_time(path, &cached)) {
+            error("file_mod_time(\"%s\") failed\n", path);
+        } else {
             cdb_set(path, &cached);
+        }
         return true;
     }
 
@@ -454,7 +511,7 @@ struct Target {
 };
 
 int build_main(int argc, char **argv,
-               struct Target *targets, size_t targets_len) {
+        struct Target *targets, size_t targets_len) {
 
     if (argc == 2) {
         char *targetss = argv[1];
@@ -516,7 +573,7 @@ void *compileThread(void *arg) {
     struct CompileData *data = ctd->data;
     if (data->type == CT_C) {
         char *args = malloc(strlen(data->srcFile) + strlen(data->outFile) +
-                            sizeof(CC) + 9 + sizeof(CC_ARGS) + ctd->ccArgsLen);
+                sizeof(CC) + 9 + sizeof(CC_ARGS) + ctd->ccArgsLen);
         sprintf(args, "%s -c %s -o %s " CC_ARGS " %s", CC, data->srcFile, data->outFile, ctd->ccArgs);
 
         int res = system(args);
@@ -527,7 +584,7 @@ void *compileThread(void *arg) {
         }
     } else if (data->type == CT_CXX) {
         char *args = malloc(strlen(data->srcFile) + strlen(data->outFile) +
-                            sizeof(CXX) + 9 + sizeof(CXX_ARGS) + ctd->ccArgsLen);
+                sizeof(CXX) + 9 + sizeof(CXX_ARGS) + ctd->ccArgsLen);
         sprintf(args, "%s -c %s -o %s " CXX_ARGS " %s", CXX, data->srcFile, data->outFile, ctd->ccArgs);
 
         int res = system(args);
@@ -549,7 +606,7 @@ void *compileThread(void *arg) {
         char * cfile = malloc(ofl + 1);
         memcpy(cfile, data->outFile, ofl + 1);
         cfile[ofl - 1] = 'c';
-        
+
         data->srcFile = cfile;
         data->type = CT_C;
         enum CompileResult r = (intptr_t) compileThread(arg);
@@ -753,9 +810,9 @@ enum CompileResult allRun(struct CompileData *objs, size_t len) {
 
 enum CompileResult test_impl_ex(char *outFile, const char *name, struct CompileData *data, size_t dataLen) {
     {
-       enum CompileResult r = verifyDependencies(data, dataLen);
-       if (r != CR_OK)
-           goto fail;
+        enum CompileResult r = verifyDependencies(data, dataLen);
+        if (r != CR_OK)
+            goto fail;
     }
 
     {
