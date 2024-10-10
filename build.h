@@ -787,7 +787,7 @@ enum CompileResult link_exe(struct CompileData *objs, size_t len, char *out) {
     return CR_FAIL;
 }
 
-int mkdir(const char *path) {
+int makeDir(const char *path) {
 #ifdef _WIN32
     if (exists(path))
         return 0;
@@ -822,7 +822,7 @@ enum CompileResult compile(struct CompileData *objs, size_t len) {
         struct CompileData *data = &objs[i];
 
         if (data->type == CT_DIR) {
-            (void) mkdir(data->outFile);
+            (void) makeDir(data->outFile);
         }
     }
 

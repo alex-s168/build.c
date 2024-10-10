@@ -77,21 +77,7 @@
 
 #ifndef INCLUDEDB_HASH
   #define INCLUDEDB_HASH(key,keylen,seed)   includedb__xx32(key,keylen,seed)
-#endif
-
-
-#ifndef INCLUDEDB_LOCKS
-  #if defined(__cplusplus)
-    #include <shared_mutex>
-  #else
-    #if defined(_WIN32)
-    #else
-      #include <pthread.h>
-    #endif
-  #endif
-  #define INCLUDEDB_LOCKS
-#endif
-
+#endif 
 
 #ifndef INCLUDEDB_NLAYERS
   // Increase this if you access the same keys more often. Decrease if you
