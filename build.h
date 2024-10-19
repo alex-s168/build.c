@@ -580,7 +580,7 @@ bool withPipPackage(const char * pkg) {
 #define SRC_CHANGED(i,l) if (skip && source_changed(i,l)) { skip = false; }
 
 #define subproject(path, outpath) \
-    shell(CC" -DSERIAL_COMP=" STR(SERIAL_COMP) " -DCC=\"\\\"" CC "\\\"\" -DCXX=\"\\\"" CXX "\\\"\" -DCC_ARGS=\"\\\"" CC_ARGS "\\\"\" -DCXX_ARGS=\"\\\"" CXX_ARGS "\\\"\" -DAR=\"\\\"" AR "\\\"\" -DLD_ARGS=\"\\\"" LD_ARGS "\\\"\" -DVERBOSE=" STR(VERBOSE) " " CC_ARGS " " path " -o " outpath)
+    shell(CC" -DSERIAL_COMP=" STR(SERIAL_COMP) " -DCC=\"\\\"" CC "\\\"\" -DCXX=\"\\\"" CXX "\\\"\" -DCC_ARGS=\"\\\"" CC_ARGS "\\\"\" -DCXX_ARGS=\"\\\"" CXX_ARGS "\\\"\" -DAR=\"\\\"" AR "\\\"\" -DLD_ARGS=\"\\\"" LD_ARGS "\\\"\" -DVERBOSE=" STR(VERBOSE) " " CC_ARGS " " LD_ARGS " " path " -o " outpath)
 
 #define ss(dir, block) { DO(subproject(dir "build.c", dir "build.exe")); const char *subproject = dir; block; }
 
