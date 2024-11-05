@@ -11,6 +11,8 @@ rules = {
     "VARIABLE": r"[a-zA-Z_$]+[a-zA-Z0-9_$]*",
     "NUMBER": r"(0b)?[0-9]+",
     "SPACE": r"[ \n]",
+    "COMMENT": r"\#.*",
+    "STRING": r"\".*\"",
     ":": r"\:",
     "?": r"\?",
     "<": r"\<",
@@ -23,14 +25,17 @@ rules = {
     "=": r"=",
     "*": r"\*",
     ",": r",",
-    "COMMENT": r"\#.*",
-    "STRING": r"\".*\"",
 }
 
 out = []
-for token in Lexer(rules, False, content):
-    if not (token.name == "SPACE" or token.name == "COMMENT"):
-        out.append(token)
+try:
+    for token in Lexer(rules, False, content):
+        if not (token.name == "SPACE" or token.name == "COMMENT"):
+            out.append(token)
+except:
+    print("tokens:")
+    for x in out:
+        print(" ", x)
 
 def escape(name):
     keywords = ["volatile","for","while","do","break","continue","goto","static","inline","extern"]
