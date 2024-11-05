@@ -8,8 +8,8 @@ with open(path, 'r') as f:
     content = f.read()
 
 rules = {
-    "VARIABLE": r"[a-zA-Z_$]+[a-zA-Z0-9_$]+",
-    "NUMBER": r"[0-9]+",
+    "VARIABLE": r"[a-zA-Z_$]+[a-zA-Z0-9_$]*",
+    "NUMBER": r"(0b)?[0-9]+",
     "SPACE": r"[ \n]",
     ":": r"\:",
     "?": r"\?",
@@ -20,6 +20,9 @@ rules = {
     ";": r";",
     "{": r"\{",
     "}": r"\}",
+    "=": r"=",
+    "*": r"\*",
+    ",": r",",
     "COMMENT": r"\#.*",
     "STRING": r"\".*\"",
 }
@@ -87,94 +90,98 @@ def immedv(tks):
 
 def parse(fileHeader, fileSource):
     ty = escape(popty("VARIABLE").val)
-    name = escape(popty("VARIABLE").val)
-    popty("(")
+    if ty == "include":
+        f = popty("STRING").val 
+        fileHeader.write("#include " + f)
+    else:
+        name = escape(popty("VARIABLE").val)
+        popty("(")
 
-    args = []
-    while out[0].name == "VARIABLE":
-        n = popty("VARIABLE").val
-        ty = until(";")
-        args.append((n, ty))
+        args = []
+        while out[0].name == "VARIABLE":
+            n = popty("VARIABLE").val
+            ty = until(";")
+            args.append((n, ty))
 
-    fileHeader.write("// Table " + name + "\n")
-    
-    fileHeader.write("typedef struct {\n\n")
-    for arg in args:
-        fileHeader.write("  struct {\n")
-        enum = 'a'
-        for ty in arg[1]:
-            if ty.name == "?":
-                fileHeader.write("    bool set;\n")
-            else:
-                x = ty.val
-                if ty.val == "byte":
-                    x = "uint8_t"
-                elif ty.val == "str":
-                    x = "const char *"
-                fileHeader.write("    " + x + " " + str(enum) + ";\n")
-                enum = chr(ord(enum) + 1)
-
-        fileHeader.write("  } " + escape(arg[0]) + ";\n")
-    fileHeader.write("} " + name + "__entry;\n\n")
+        fileHeader.write("// Table " + name + "\n")
         
-    popty(")")
-
-    entry_prefix = name + "_"
-    if out[0].val == "enum_entry_prefix":
-        out.pop(0)
-        entry_prefix = out.pop(0).val[1:-1]
-
-    popty("{")
-
-    options = {}
-    while out[0].val == "entry":
-        popty("VARIABLE")
-        nam = escape(popty("VARIABLE").val)
-        try:
-            values = {x[0].val: immedv(x[1]) for x in chunk(bundle(until(";")), 2)}
-            for arg in args:
-                if arg[1][0].name != "?":
-                    if arg[0] not in values:
-                        raise Exception("non-optional field " + arg[0] + " not set")
-            options[nam] = values
-        except Exception as e:
-            raise Exception("error in entry " + nam + ": " + str(e))
-
-    popty("}")
-
-    fileHeader.write("#define " + name + "__len (" + str(len(options)) + ")\n\n")
-    fileHeader.write("extern " + name + "__entry " + name + "__entries[" + name + "__len];\n\n")
-
-    fileHeader.write("typedef enum {\n")
-    for i, key in enumerate(options):
-        fileHeader.write("  " + entry_prefix + key + " = " + str(i) + ",\n")
-    fileHeader.write("} " + name + ";\n")
-
-    fileSource.write("// Table " + name + "\n\n")
-    fileSource.write(name + "__entry " + name + "__entries[" + name + "__len] = {\n")
-
-    for key in options:
-        val = options[key]
-        fileSource.write("  [" + entry_prefix + key + "] = (" + name + "__entry) {\n")
-        for member in args:
-            memberKey = member[0]
-            memberTypes = member[1]
-            if memberKey in val:
-                enum = 'a'
-                imm = val[memberKey]
-
-                if memberTypes[0].name == '?':
-                    fileSource.write("    ." + escape(memberKey) + ".set = true,\n")
-
-                for x in imm:
-                    fileSource.write("    ." + escape(memberKey) + "." + enum + " = " + x + ",\n")
+        fileHeader.write("typedef struct {\n\n")
+        for arg in args:
+            fileHeader.write("  struct {\n")
+            enum = 'a'
+            for ty in arg[1]:
+                if ty.name == "?":
+                    fileHeader.write("    bool set;\n")
+                else:
+                    x = ty.val
+                    if ty.val == "byte":
+                        x = "uint8_t"
+                    elif ty.val == "str":
+                        x = "const char *"
+                    fileHeader.write("    " + x + " " + str(enum) + ";\n")
                     enum = chr(ord(enum) + 1)
-            else:
-                fileSource.write("    ." + escape(memberKey) + ".set = false,\n")
 
-        fileSource.write("  },\n")
+            fileHeader.write("  } " + escape(arg[0]) + ";\n")
+        fileHeader.write("} " + name + "__entry;\n\n")
+            
+        popty(")")
 
-    fileSource.write("};\n\n");
+        entry_prefix = name + "_"
+        if out[0].val == "enum_entry_prefix":
+            out.pop(0)
+            entry_prefix = out.pop(0).val[1:-1]
+
+        popty("{")
+
+        options = {}
+        while out[0].val == "entry":
+            popty("VARIABLE")
+            nam = escape(popty("VARIABLE").val)
+            try:
+                values = {x[0].val: immedv(x[1]) for x in chunk(bundle(until(";")), 2)}
+                for arg in args:
+                    if arg[1][0].name != "?":
+                        if arg[0] not in values:
+                            raise Exception("non-optional field " + arg[0] + " not set")
+                options[nam] = values
+            except Exception as e:
+                raise Exception("error in entry " + nam + ": " + str(e))
+
+        popty("}")
+
+        fileHeader.write("#define " + name + "__len (" + str(len(options)) + ")\n\n")
+        fileHeader.write("extern " + name + "__entry " + name + "__entries[" + name + "__len];\n\n")
+
+        fileHeader.write("typedef enum {\n")
+        for i, key in enumerate(options):
+            fileHeader.write("  " + entry_prefix + key + " = " + str(i) + ",\n")
+        fileHeader.write("} " + name + ";\n")
+
+        fileSource.write("// Table " + name + "\n\n")
+        fileSource.write(name + "__entry " + name + "__entries[" + name + "__len] = {\n")
+
+        for key in options:
+            val = options[key]
+            fileSource.write("  [" + entry_prefix + key + "] = (" + name + "__entry) {\n")
+            for member in args:
+                memberKey = member[0]
+                memberTypes = member[1]
+                if memberKey in val:
+                    enum = 'a'
+                    imm = val[memberKey]
+
+                    if memberTypes[0].name == '?':
+                        fileSource.write("    ." + escape(memberKey) + ".set = true,\n")
+
+                    for x in imm:
+                        fileSource.write("    ." + escape(memberKey) + "." + enum + " = " + x + ",\n")
+                        enum = chr(ord(enum) + 1)
+                else:
+                    fileSource.write("    ." + escape(memberKey) + ".set = false,\n")
+
+            fileSource.write("  },\n")
+
+        fileSource.write("};\n\n");
 
 
 with open("build/" + path + ".h", 'w') as f0:
