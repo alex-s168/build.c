@@ -78,7 +78,7 @@
 #define DISABLE_TESTS
 #include "includedb.h"
 
-#define error(msg, ...) fprintf(stderr, msg __VA_OPT__(,) __VA_ARGS__)
+#define error(msg, ...) fprintf(stderr, msg, ##__VA_ARGS__)
 
 enum CompileType {
     CT_C,

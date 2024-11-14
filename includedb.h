@@ -56,7 +56,11 @@
   #define CTOR2(x,y)
   #define CTOR3(x,y,z)
   #define CTOR4(w,x,y,z)
-  #define COMPTIME static const
+  #ifdef __TINYC__ 
+    #define COMPTIME /**/
+  #else 
+    #define COMPTIME static const
+  #endif
   #define constexpr
   #include <stdbool.h>
   #ifndef DISABLE_TESTS
