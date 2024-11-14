@@ -74,9 +74,7 @@
 #define MINIRENT_IMPLEMENTATION
 #include "minirent.h"
 
-#define INCLUDEDB_IMPLEMENTATION
-#define DISABLE_TESTS
-#include "includedb.h"
+#include "slowdb.h"
 
 #define error(msg, ...) fprintf(stderr, msg, ##__VA_ARGS__)
 
@@ -301,7 +299,7 @@ int system_impl(const char *command) {
 #define STR2(v) #v
 #define STR(v) STR2(v)
 
-includeDB* changedDb = NULL;
+slowdb* changedDb = NULL;
 #if !SERIAL_COMP
 mutex_t changedMut;
 #endif
@@ -377,13 +375,14 @@ int cdb_get(const char * key, time_t * out) {
     mutex_lock(&changedMut);
 #endif 
 
-    void * ptr = includedb_get(changedDb,
+    void * ptr = slowdb_get(changedDb,
             (const unsigned char *) key, strlen(key),
             NULL);
 
     if (ptr != NULL) {
         struct tm * t = (struct tm *) ptr;
         *out = mktime(t);
+        free(ptr);
     }
 
 #if !SERIAL_COMP
@@ -406,13 +405,13 @@ bool cdb_notHaveAndSet(const char * key) {
     mutex_lock(&changedMut);
 #endif 
 
-    void * ptr = includedb_get(changedDb,
+    void * ptr = slowdb_get(changedDb,
             (const unsigned char *) key, strlen(key),
             NULL);
 
     if (ptr == NULL) {
         unsigned char p = 0;
-        includedb_put(changedDb,
+        slowdb_put(changedDb,
                 (const unsigned char *) key, strlen(key),
                 &p, sizeof(unsigned char));
     }
@@ -420,6 +419,8 @@ bool cdb_notHaveAndSet(const char * key) {
 #if !SERIAL_COMP
     mutex_unlock(&changedMut);
 #endif 
+
+    free(ptr);
 
     return ptr == NULL;
 }
@@ -430,14 +431,12 @@ char *cdb_getStrHeap(const char * key) {
 #endif 
 
     int len;
-    void * ptr = includedb_get(changedDb,
+    void * ptr = slowdb_get(changedDb,
             (const unsigned char *) key, strlen(key),
             &len);
 
     if (ptr) {
-        const void * old = ptr;
-        ptr = malloc(sizeof(char) * (len + 1));
-        memcpy(ptr, ptr, sizeof(char) * len);
+        ptr = realloc(ptr, len + 1);
         ((char *) ptr)[len] = '\0';
     }
 
@@ -454,7 +453,7 @@ void cdb_setStrInitial(const char * key, const char * value) {
     mutex_lock(&changedMut);
 #endif 
 
-    includedb_put(changedDb,
+    slowdb_put(changedDb,
             (const unsigned char *) key, strlen(key),
             (const unsigned char *) value, strlen(value));
 
@@ -472,25 +471,13 @@ void cdb_set(const char * key, time_t const* time) {
     mutex_lock(&changedMut);
 #endif 
 
-    unsigned char * curr = includedb_get(changedDb,
+    slowdb_replaceOrPut(changedDb,
             (const unsigned char *) key, keylen,
-            NULL);
-
-    int v = includedb_ok;
-    if (curr) {
-        memcpy(curr,
-                (const unsigned char *) t, sizeof(struct tm));
-    } 
-    else {
-        v = includedb_put(changedDb, 
-                (const unsigned char *) key, keylen,
-                (const unsigned char *) t, sizeof(struct tm));
-    }
+            (const unsigned char *) t, sizeof(struct tm));
 
 #if !SERIAL_COMP
     mutex_unlock(&changedMut);
 #endif 
-    assert(v == includedb_ok);
 }
 
 bool file_changed(const char *path) {
@@ -635,7 +622,7 @@ int build_main(int argc, char **argv,
 
         int cod = 0;
 
-        changedDb = includedb_open("build.changed");
+        changedDb = slowdb_open("build.slowdb");
         assert(changedDb);
 #if !SERIAL_COMP
         mutex_create(&changedMut);
@@ -673,7 +660,7 @@ int build_main(int argc, char **argv,
 #if !SERIAL_COMP
         mutex_destroy(&changedMut);
 #endif 
-        includedb_close(changedDb);
+        slowdb_close(changedDb);
 
         return cod;
     }
