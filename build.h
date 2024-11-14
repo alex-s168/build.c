@@ -465,8 +465,6 @@ void cdb_set(const char * key, time_t const* time) {
     mutex_lock(&changedMut);
 #endif 
 
-    printf("setting %s\n", key);
-
     slowdb_replaceOrPut(changedDb,
             (const unsigned char *) key, strlen(key) + 1,
             (const unsigned char *) t, sizeof(struct tm));
