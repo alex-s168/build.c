@@ -413,7 +413,7 @@ bool cdb_notHaveAndSet(const char * key) {
         unsigned char p = 0;
         slowdb_put(changedDb,
                 (const unsigned char *) key, strlen(key),
-                &p, sizeof(unsigned char));
+                &p, sizeof(p));
     }
 
 #if !SERIAL_COMP
@@ -566,10 +566,11 @@ bool withPipPackage(const char * pkg) {
 #define CHANGED(file)    if (skip && file_changed(file)) { skip = false; }
 #define SRC_CHANGED(i,l) if (skip && source_changed(i,l)) { skip = false; }
 
-#define subproject(path, outpath) \
-    shell(CC" -DSERIAL_COMP=" STR(SERIAL_COMP) " -DCC=\"\\\"" CC "\\\"\" -DCXX=\"\\\"" CXX "\\\"\" -DCC_ARGS=\"\\\"" CC_ARGS "\\\"\" -DCXX_ARGS=\"\\\"" CXX_ARGS "\\\"\" -DAR=\"\\\"" AR "\\\"\" -DLD_ARGS=\"\\\"" LD_ARGS "\\\"\" -DVERBOSE=" STR(VERBOSE) " " CC_ARGS " " LD_ARGS " " path " -o " outpath)
+#define subproject(args, path, outpath) \
+    shell(CC" -DSERIAL_COMP=" STR(SERIAL_COMP) " -DCC=\"\\\"" CC "\\\"\" -DCXX=\"\\\"" CXX "\\\"\" -DCC_ARGS=\"\\\"" CC_ARGS "\\\"\" -DCXX_ARGS=\"\\\"" CXX_ARGS "\\\"\" -DAR=\"\\\"" AR "\\\"\" -DLD_ARGS=\"\\\"" LD_ARGS "\\\"\" -DVERBOSE=" STR(VERBOSE) " " CC_ARGS " " LD_ARGS " " path " -o " outpath " " args)
 
-#define ss(dir, block) { DO(subproject(dir "build.c", dir "build.exe")); const char *subproject = dir; block; }
+#define ssx(dir, args, block) { DO(subproject(args, dir "build.c", dir "build.exe")); const char *subproject = dir; block; }
+#define ss(dir, block) ssx(dir, "", block)
 
 bool skipLinkFor(enum CompileType t) {
     return t == CT_RUN || t == CT_DIR || t == CT_NOC || t == CT_CCARG;
