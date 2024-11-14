@@ -74,7 +74,8 @@
 #define MINIRENT_IMPLEMENTATION
 #include "minirent.h"
 
-#include "slowdb.h"
+#define SLOWDB_IMPL
+#include "slowdb/slowdb.h"
 
 #define error(msg, ...) fprintf(stderr, msg, ##__VA_ARGS__)
 
@@ -376,7 +377,7 @@ int cdb_get(const char * key, time_t * out) {
 #endif 
 
     void * ptr = slowdb_get(changedDb,
-            (const unsigned char *) key, strlen(key),
+            (const unsigned char *) key, strlen(key) + 1,
             NULL);
 
     if (ptr != NULL) {
@@ -406,13 +407,13 @@ bool cdb_notHaveAndSet(const char * key) {
 #endif 
 
     void * ptr = slowdb_get(changedDb,
-            (const unsigned char *) key, strlen(key),
+            (const unsigned char *) key, strlen(key) + 1,
             NULL);
 
     if (ptr == NULL) {
         unsigned char p = 0;
         slowdb_put(changedDb,
-                (const unsigned char *) key, strlen(key),
+                (const unsigned char *) key, strlen(key) + 1,
                 &p, sizeof(p));
     }
 
@@ -432,13 +433,8 @@ char *cdb_getStrHeap(const char * key) {
 
     int len;
     void * ptr = slowdb_get(changedDb,
-            (const unsigned char *) key, strlen(key),
+            (const unsigned char *) key, strlen(key) + 1,
             &len);
-
-    if (ptr) {
-        ptr = realloc(ptr, len + 1);
-        ((char *) ptr)[len] = '\0';
-    }
 
 #if !SERIAL_COMP
     mutex_unlock(&changedMut);
@@ -454,8 +450,8 @@ void cdb_setStrInitial(const char * key, const char * value) {
 #endif 
 
     slowdb_put(changedDb,
-            (const unsigned char *) key, strlen(key),
-            (const unsigned char *) value, strlen(value));
+            (const unsigned char *) key, strlen(key) + 1,
+            (const unsigned char *) value, strlen(value) + 1);
 
 #if !SERIAL_COMP
     mutex_unlock(&changedMut);
@@ -465,14 +461,14 @@ void cdb_setStrInitial(const char * key, const char * value) {
 void cdb_set(const char * key, time_t const* time) {
     struct tm * t = localtime(time);
 
-    size_t keylen = strlen(key);
-
 #if !SERIAL_COMP
     mutex_lock(&changedMut);
 #endif 
 
+    printf("setting %s\n", key);
+
     slowdb_replaceOrPut(changedDb,
-            (const unsigned char *) key, keylen,
+            (const unsigned char *) key, strlen(key) + 1,
             (const unsigned char *) t, sizeof(struct tm));
 
 #if !SERIAL_COMP
@@ -492,8 +488,10 @@ bool file_changed(const char *path) {
     }
 
     time_t mod;
-    if (file_mod_time(path, &mod))
+    if (file_mod_time(path, &mod)) {
+        error("file_mod_time(\"%s\") failed\n", path);
         return true;
+    }
 
     if (cached == mod)
         return false;
@@ -503,11 +501,12 @@ bool file_changed(const char *path) {
 }
 
 bool source_changed(struct CompileData *items, size_t len) {
+    bool any = false;
     for (size_t i = 0; i < len; i ++)
         if (items[i].srcFile[0] != '\0')
             if (file_changed(items[i].srcFile))
-                return true;
-    return false;
+                any = true;
+    return any;
 }
 
 const char * findPython(void) {
