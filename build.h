@@ -961,6 +961,10 @@ enum CompileResult test_dir(const char *dirp, struct CompileData *data, size_t d
             continue;
         }
 
+		char ext = dp->d_name[strlen(dp->d_name)-1];
+		if (ext == 'h')
+			continue;
+
         static char infile[256];
         sprintf(infile, "%s/%s", dirp, dp->d_name);
 
