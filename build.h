@@ -75,7 +75,7 @@
 #include "minirent.h"
 
 #define SLOWDB_IMPL
-#include "slowdb/slowdb.h"
+#include "slowdb/inc/slowdb.h"
 
 #define error(msg, ...) fprintf(stderr, msg, ##__VA_ARGS__)
 
