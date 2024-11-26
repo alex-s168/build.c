@@ -16,8 +16,8 @@ $ cp build_c/example.c build.c
 
 # Modify build script now
 
-# Build build script
-$ cc build.c -o build.exe
+# Build build script and slowdb
+$ cc build.c $(build_c/slowdb/build.sh) -o build.exe
 
 # List all targets
 $ ./build.exe 
