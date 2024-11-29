@@ -474,6 +474,28 @@ void cdb_set(const char * key, time_t const* time) {
 #endif 
 }
 
+void byte_to_hex(char* out, uint8_t byte, bool upper) {
+	static char tab_up[16] = { '0','1','2','3','4','5','6','7','8','9','A','B','C','D','E','F' };
+	static char tab_down[16] = { '0','1','2','3','4','5','6','7','8','9','a','b','c','d','e','f' };
+	char* tab = upper ? tab_up : tab_down;
+
+	out[0] = tab[byte & 0xF];
+	out[1] = tab[(byte >> 4) & 0xF];
+}
+
+void print_bytes_hex(FILE* out, uint8_t const* src, size_t srclen, bool upper, bool commas) {
+	char by[2];
+	for (size_t i = 0; i < srclen; i ++) {
+		if (i > 0) {
+			if (commas) fputc(',', out);
+			fputc(' ', out);
+		}
+
+		byte_to_hex(by, src[i], upper);
+		fwrite(by, sizeof(char), 2, out);
+	}
+}
+
 bool file_changed(const char *path) {
     time_t cached;
     if (cdb_get(path, &cached)) {
@@ -490,6 +512,12 @@ bool file_changed(const char *path) {
         error("file_mod_time(\"%s\") failed\n", path);
         return true;
     }
+
+/*
+	printf("cached match data of %s: %i:\n", path, cached == mod);
+	printf("  ["); print_bytes_hex(stdout, (uint8_t*) &cached, sizeof(cached), false, true); printf("]\n");
+	printf("  ["); print_bytes_hex(stdout, (uint8_t*) &mod, sizeof(mod), false, true); printf("]\n");
+*/
 
     if (cached == mod)
         return false;
