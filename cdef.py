@@ -116,10 +116,12 @@ def parse(fileHeader, fileSource):
             enum = 'a'
             for ty in arg[1]:
                 if ty.name == "?":
-                    fileHeader.write("    bool set;\n")
+                    fileHeader.write("    int set;\n")
                 else:
                     x = ty.val
-                    if ty.val == "byte":
+                    if ty.val == "bool":
+                        x = "int"
+                    elif ty.val == "byte":
                         x = "uint8_t"
                     elif ty.val == "str":
                         x = "const char *"
@@ -176,13 +178,19 @@ def parse(fileHeader, fileSource):
                     imm = val[memberKey]
 
                     if memberTypes[0].name == '?':
-                        fileSource.write("    ." + escape(memberKey) + ".set = true,\n")
+                        fileSource.write("    ." + escape(memberKey) + ".set = 1,\n")
+
+                    if len(imm) == 1:
+                        if imm[0] == "true":
+                            imm = ["1"]
+                        elif imm[0] == "false":
+                            imm = ["0"]
 
                     for x in imm:
                         fileSource.write("    ." + escape(memberKey) + "." + enum + " = " + x + ",\n")
                         enum = chr(ord(enum) + 1)
                 else:
-                    fileSource.write("    ." + escape(memberKey) + ".set = false,\n")
+                    fileSource.write("    ." + escape(memberKey) + ".set = 0,\n")
 
             fileSource.write("  },\n")
 
@@ -191,7 +199,7 @@ def parse(fileHeader, fileSource):
 
 with open("build/" + path + ".h", 'w') as f0:
     with open("build/" + path + ".c", 'w') as f1:
-        f0.write("#include <stdint.h>\n#include <stdbool.h>\n\n")
+        f0.write("#include <stdint.h>\n\n")
         f1.write("#include \"" + os.path.basename(path) + ".h\"\n\n")
         while len(out) > 0:
             parse(f0, f1)
