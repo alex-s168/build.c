@@ -79,6 +79,28 @@
 
 #define error(msg, ...) fprintf(stderr, msg, ##__VA_ARGS__)
 
+static char* concat_to_heap(char const** argsnt)
+{
+    size_t len = 1;
+    for (char const** ptr = argsnt; *ptr; ptr ++) 
+    {
+        len += strlen(*ptr);
+    }
+
+    char* full_out = (char*) malloc(len);
+    assert(full_out);
+    char* p = full_out;
+    for (char const** ptr = argsnt; *ptr; ptr ++)
+    {
+        size_t len = strlen(*ptr);
+        memcpy(p, *ptr, len);
+        p += len;
+    }
+    *p = '\0';
+    return full_out;
+}
+#define concat_to_heap_x(...) concat_to_heap((char const*[]){ __VA_ARGS__ __VA_OPT__(,) NULL })
+
 enum CompileType {
     CT_C,
     CT_CXX,
@@ -98,9 +120,9 @@ enum CompileResult {
 };
 
 struct CompileData {
-    char *srcFile;
-    char *outFile;
     enum CompileType type;
+    char const* srcFile;
+    char const* outFile;
 };
 
 struct CompileThreadData {
@@ -275,8 +297,7 @@ int system_impl(const char *command) {
     char *escaped = malloc(escaped_max_len);
     str_escape(escaped, command, escaped_max_len);
 
-    char *newcmd = malloc(strlen(escaped) + 1 + 10);
-    sprintf(newcmd, "bash -c \"%s\"", escaped);
+    char *newcmd = concat_to_heap_x("bash -c \"", escaped, "\"");
     free(escaped);
 # if VERBOSE
     printf("$ %s\n", newcmd);
@@ -569,19 +590,21 @@ const char * findPython(void) {
  * /endcode 
  */
 bool withPipPackage(const char * pkg) {
-    char pkgb[64];
-    sprintf(pkgb, "_py_mod_%s", pkg);
+    char* pkgb = concat_to_heap_x("_py_mod_", pkg);
 
     if (cdb_notHaveAndSet(pkgb)) {
         const char * py = findPython();
         if (!py) return false;
 
-        char buf[512];
-        sprintf(buf, "%s -m pip install %s", py, pkg);
+        char* buf = concat_to_heap_x(py, " -m pip install ", pkg);
+        int status = system(buf);
+        free(buf);
 
-        if (system(buf) != 0)
+        if (status != 0)
             return false;
     }
+
+    free(pkgb);
 
     return true;
 }
@@ -606,11 +629,7 @@ bool skipCompileFor(enum CompileType t) {
 }
 
 enum CompileResult ss_task_impl(const char *subproj, const char *task) {
-    static char mid[] = "build.exe ";
-    size_t len = strlen(subproj) + sizeof(mid) + strlen(task) + 3 + 20;
-    char *cmd = malloc(len);
-
-    sprintf(cmd, "cd %s && ./%s%s", subproj, mid, task);
+    char* cmd = concat_to_heap_x("cd ", subproj, " && ./build.exe ", task);
 
     enum CompileResult res = shell(cmd);
     free(cmd);
@@ -620,19 +639,19 @@ enum CompileResult ss_task_impl(const char *subproj, const char *task) {
 #define ss_task(task) ss_task_impl(subproject, task)
 
 int rmdir(const char *path) {
-    char *cmd = malloc(strlen(path) + 2 + sizeof(RMDIR));
-    sprintf(cmd, "%s %s", RMDIR, path);
-    int res = system(cmd);
-    free(cmd);
-    return res;
+#ifdef _WIN32
+    return !RemoveDirectoryA(path);
+#else
+    return remove(path);
+#endif
 }
 
 int rmfile(const char *path) {
-    char *cmd = malloc(strlen(path) + 2 + sizeof(RMFILE));
-    sprintf(cmd, "%s %s", RMFILE, path);
-    int res = system(cmd);
-    free(cmd);
-    return res;
+#ifdef _WIN32
+    return !DeleteFile(path);
+#else
+    return remove(path);
+#endif
 }
 
 struct Target {
@@ -699,48 +718,46 @@ int build_main(int argc, char **argv,
 }
 
 void *compileThread(void *arg) {
-    struct CompileThreadData * ctd = arg;
+    struct CompileThreadData * ctd = (struct CompileThreadData *) arg;
     struct CompileData *data = ctd->data;
     if (data->type == CT_C) {
-        char *args = malloc(strlen(data->srcFile) + strlen(data->outFile) +
-                sizeof(CC) + 9 + sizeof(CC_ARGS) + ctd->ccArgsLen);
-        sprintf(args, "%s -c %s -o %s " CC_ARGS " %s", CC, data->srcFile, data->outFile, ctd->ccArgs);
-
+        char* args = concat_to_heap_x(CC, " -c ", data->srcFile, " -o ", data->outFile, (" " CC_ARGS " "), ctd->ccArgs);
         int res = system(args);
         free(args);
+
         if (res != 0) {
             printf("%i\n", res);
             return (void *) CR_FAIL;
         }
-    } else if (data->type == CT_CXX) {
-        char *args = malloc(strlen(data->srcFile) + strlen(data->outFile) +
-                sizeof(CXX) + 9 + sizeof(CXX_ARGS) + ctd->ccArgsLen);
-        sprintf(args, "%s -c %s -o %s " CXX_ARGS " %s", CXX, data->srcFile, data->outFile, ctd->ccArgs);
-
+    }
+    else if (data->type == CT_CXX) {
+        char* args = concat_to_heap_x(CXX, " -c ", data->srcFile, " -o ", data->outFile, (" " CXX_ARGS " "), ctd->ccArgs);
         int res = system(args);
         free(args);
+
         if (res != 0) {
             printf("%i\n", res);
             return (void *) CR_FAIL;
         }
-    } else if (data->type == CT_CDEF) {
+    }
+    else if (data->type == CT_CDEF) {
         const char * python = findPython();
-        char* cmd = malloc(3 + strlen(python) + sizeof(SELF_PATH) + strlen(data->srcFile) + 7);
-        sprintf(cmd, "%s " SELF_PATH "cdef.py %s", python, data->srcFile);
+        char* cmd = concat_to_heap_x(python, " ", (SELF_PATH "cdef.py "), data->srcFile);
         int res = system(cmd);
         free(cmd);
+
         if (res != 0) {
             return (void*) CR_FAIL;
         }
 
         size_t ofl = strlen(data->outFile);
-        char * cfile = malloc(ofl + 1);
+        char* cfile = (char*) malloc(ofl + 1);
         memcpy(cfile, data->outFile, ofl + 1);
         cfile[ofl - 1] = 'c';
 
         data->srcFile = cfile;
         data->type = CT_C;
-        enum CompileResult r = (intptr_t) compileThread(arg);
+        enum CompileResult r = (enum CompileResult) (intptr_t) compileThread(arg);
         free(cfile);
         if (r != CR_OK)
             return (void*) r; 
@@ -753,7 +770,7 @@ enum CompileResult linkTask(struct CompileData *objs, size_t len, char *out) {
     for (size_t i = 0; i < len; i ++) {
         sl += strlen(objs[i].outFile) + 1;
     }
-    char *cmd = malloc(sl);
+    char* cmd = (char*) malloc(sl);
     cmd[0] = '\0';
     sprintf(cmd, "%s rcs %s ", AR, out);
 
@@ -780,7 +797,7 @@ enum CompileResult link_exe(struct CompileData *objs, size_t len, char *out) {
     for (size_t i = 0; i < len; i ++) {
         sl += strlen(objs[i].outFile) + 1;
     }
-    char *cmd = malloc(sl);
+    char *cmd = (char*) malloc(sl);
     cmd[0] = '\0';
     sprintf(cmd, "%s -o %s " LD_ARGS " ", CC, out);
 
@@ -805,8 +822,7 @@ int makeDir(const char *path) {
     if (exists(path))
         return 0;
 #endif
-    char *args = malloc(strlen(path) + sizeof(MKDIR) + 1);
-    sprintf(args, "%s %s", MKDIR, path);
+    char* args = concat_to_heap_x(MKDIR, " ", path);
     int res = system(args);
     free(args);
     return res;
@@ -820,7 +836,7 @@ enum CompileResult compile(struct CompileData *objs, size_t len) {
         }
     }
 
-    char * extraArgs = malloc(extraArgsLen + 1);
+    char* extraArgs = (char*) malloc(extraArgsLen + 1);
     extraArgs[0] = 0;
     for (size_t i = 0; i < len; i ++) {
         if (objs[i].type == CT_CCARG) {
@@ -905,7 +921,7 @@ enum CompileResult verifyDependencies(struct CompileData *objs, size_t len) {
         if (objs[i].type != CT_DEP)
             continue;
 
-        char *f = objs[i].outFile;
+        char const* f = objs[i].outFile;
         if (!exists(f)) {
             error("Missing dependency:\n ");
             error("%s", f);
@@ -924,7 +940,7 @@ enum CompileResult allRun(struct CompileData *objs, size_t len) {
         if (data->type != CT_RUN)
             continue;
 
-        char *f = data->srcFile;
+        char const* f = data->srcFile;
         if (!exists(f)) {
             error("Missing executable:\n");
             error("%s", f);
@@ -993,22 +1009,20 @@ enum CompileResult test_dir(const char *dirp, struct CompileData *data, size_t d
 		if (ext == 'h')
 			continue;
 
-        static char infile[256];
-        sprintf(infile, "%s/%s", dirp, dp->d_name);
+        char* infile = concat_to_heap_x(dirp, "/", dp->d_name);
+        char* outfile = concat_to_heap_x("build/", dirp, "/", dp->d_name, ".exe");
+        char* objfile = concat_to_heap_x("build/", dirp, "/", dp->d_name, ".o");
 
-        static char outfile[256];
-        sprintf(outfile, "build/%s/%s.exe", dirp, dp->d_name);
-
-        static char objfile[256];
-        sprintf(objfile, "build/%s/%s.o", dirp, dp->d_name);
-
-        struct CompileData * dataex = malloc(sizeof(struct CompileData) * (dataLen + 2));
+        struct CompileData * dataex = (struct CompileData*) malloc(sizeof(struct CompileData) * (dataLen + 2));
         memcpy(dataex + 2, data, sizeof(struct CompileData) * dataLen);
         dataex[0] = (struct CompileData) { .type = CT_C, .srcFile = infile, .outFile = objfile };
         dataex[1] = (struct CompileData) RUN(outfile);
 
         resTemp = test_impl_ex(outfile, dp->d_name, dataex, dataLen + 2);
         free(dataex);
+        free(infile);
+        free(outfile);
+        free(objfile);
         if (resTemp != CR_OK) res = resTemp;
     }
 
