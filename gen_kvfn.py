@@ -12,7 +12,7 @@ import sys
 
 def splitlast(x, sep):
     where = x.rfind(sep)
-    return x[:where], x[where:]
+    return x[:where], x[where+1:]
 
 sig = None
 if len(sys.argv) > 1:

@@ -667,7 +667,9 @@ int build_main(int argc, char **argv,
 
         int cod = 0;
 
-        changedDb = slowdb_open("build.slowdb");
+        slowdb_open_opts opts;
+        slowdb_open_opts_default(&opts);
+        changedDb = slowdb_openx("build.slowdb", &opts);
         assert(changedDb);
 #if !SERIAL_COMP
         mutex_create(&changedMut);
